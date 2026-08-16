@@ -28,12 +28,12 @@
                 @csrf
                 <div>
                     <label class="block text-sm font-medium mb-1">Email</label>
-                    <input type="email" name="email" value="{{ old('email', 'admin@poskasir.test') }}" class="input" required autofocus>
+                    <input type="email" name="email" value="{{ old('email') }}" class="input" required autofocus>
                     @error('email') <p class="text-red-600 text-sm mt-1">{{ $message }}</p> @enderror
                 </div>
                 <div>
                     <label class="block text-sm font-medium mb-1">Password</label>
-                    <input type="password" name="password" value="password" class="input" required>
+                    <input type="password" name="password" class="input" required>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-slate-600">
                     <input type="checkbox" name="remember"> Ingat saya
@@ -46,8 +46,6 @@
                 Belum punya akun?
                 <a href="{{ route('register') }}" class="text-brand-700 font-semibold">Daftar toko</a>
             </p>
-            <p class="text-center text-xs text-slate-400 mt-3">Demo toko: admin@poskasir.test / password</p>
-            <p class="text-center text-xs text-slate-400">Developer: developer@poskasir.test / password</p>
         </div>
     </div>
 </div>
