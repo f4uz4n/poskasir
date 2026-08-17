@@ -64,50 +64,55 @@
             </div>
         </div>
 
-        <div id="cart-list" class="pos-cart-list"></div>
+        <div class="pos-cart-body">
+            <div id="cart-list" class="pos-cart-list"></div>
 
-        <div class="pos-cart-footer">
-            <div class="pos-cart-summary space-y-1.5 text-sm">
-                <div class="flex justify-between"><span>Subtotal</span><span id="cart-subtotal">Rp 0</span></div>
-                <div class="flex justify-between items-center gap-2">
-                    <span>Diskon</span>
-                    <div class="relative w-36 sm:w-40">
-                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
-                        <input id="cart-discount" type="text" inputmode="numeric" value="0" class="input text-right py-1.5 pl-8 text-sm" placeholder="0">
+            <div class="pos-cart-footer">
+                <div class="pos-cart-summary space-y-1.5 text-sm">
+                    <div class="flex justify-between"><span>Subtotal</span><span id="cart-subtotal">Rp 0</span></div>
+                    <div class="flex justify-between items-center gap-2">
+                        <span>Diskon</span>
+                        <div class="relative w-36 sm:w-40">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
+                            <input id="cart-discount" type="text" inputmode="numeric" value="0" class="input text-right py-1.5 pl-8 text-sm" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="flex justify-between"><span>Pajak (<span id="tax-label">0</span>%)</span><span id="cart-tax">Rp 0</span></div>
+                    <div class="flex justify-between text-base sm:text-lg font-extrabold pt-1"><span>Total</span><span id="cart-total">Rp 0</span></div>
+                </div>
+
+                <div class="pos-cart-pay space-y-2">
+                    <input id="customer-name" type="text" class="input py-2 text-sm" placeholder="Nama pelanggan (opsional)">
+                    <div class="grid grid-cols-2 gap-2">
+                        <select id="payment-method" class="input py-2 text-sm">
+                            <option value="cash">Tunai</option>
+                            <option value="qris">QRIS</option>
+                            <option value="transfer">Transfer</option>
+                            <option value="card">Kartu</option>
+                            <option value="credit">Piutang</option>
+                        </select>
+                        <div class="relative">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
+                            <input id="paid-amount" type="text" inputmode="numeric" class="input pl-8 py-2 text-sm text-right font-semibold" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="pos-quick-pay flex flex-wrap gap-1.5">
+                        <button type="button" id="btn-pay-exact" class="btn btn-ghost text-xs py-1 px-2">Uang pas</button>
+                        <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="10000">10rb</button>
+                        <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="20000">20rb</button>
+                        <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="50000">50rb</button>
+                        <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="100000">100rb</button>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span>Kembalian</span>
+                        <span id="change-amount" class="font-semibold">Rp 0</span>
                     </div>
                 </div>
-                <div class="flex justify-between"><span>Pajak (<span id="tax-label">0</span>%)</span><span id="cart-tax">Rp 0</span></div>
-                <div class="flex justify-between text-base sm:text-lg font-extrabold pt-1"><span>Total</span><span id="cart-total">Rp 0</span></div>
             </div>
+        </div>
 
-            <div class="pos-cart-pay space-y-2">
-                <input id="customer-name" type="text" class="input py-2 text-sm" placeholder="Nama pelanggan (opsional)">
-                <div class="grid grid-cols-2 gap-2">
-                    <select id="payment-method" class="input py-2 text-sm">
-                        <option value="cash">Tunai</option>
-                        <option value="qris">QRIS</option>
-                        <option value="transfer">Transfer</option>
-                        <option value="card">Kartu</option>
-                        <option value="credit">Piutang</option>
-                    </select>
-                    <div class="relative">
-                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
-                        <input id="paid-amount" type="text" inputmode="numeric" class="input pl-8 py-2 text-sm text-right font-semibold" placeholder="0">
-                    </div>
-                </div>
-                <div class="pos-quick-pay flex flex-wrap gap-1.5">
-                    <button type="button" id="btn-pay-exact" class="btn btn-ghost text-xs py-1 px-2">Uang pas</button>
-                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="10000">10rb</button>
-                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="20000">20rb</button>
-                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="50000">50rb</button>
-                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="100000">100rb</button>
-                </div>
-                <div class="flex justify-between text-sm">
-                    <span>Kembalian</span>
-                    <span id="change-amount" class="font-semibold">Rp 0</span>
-                </div>
-                <button type="button" id="btn-checkout" class="btn btn-primary w-full py-3 text-base shadow-sm">Bayar & Cetak</button>
-            </div>
+        <div class="pos-cart-action">
+            <button type="button" id="btn-checkout" class="btn btn-primary w-full py-3 text-base shadow-sm">Bayar & Cetak</button>
         </div>
     </div>
 </div>
