@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\OfflinePrecacheService;
 use App\Services\StoreDataWipeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -136,6 +137,17 @@ class SettingController extends Controller
         ]);
 
         return back()->with('success', 'Pengaturan berhasil disimpan.');
+    }
+
+    public function precacheManifest(OfflinePrecacheService $precache)
+    {
+        $urls = $precache->urlsFor(Auth::user());
+
+        return response()->json([
+            'success' => true,
+            'count' => count($urls),
+            'urls' => $urls,
+        ]);
     }
 
     public function enableOffline(Request $request)

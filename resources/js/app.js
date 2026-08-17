@@ -67,9 +67,118 @@ function serviceWorkerUrl() {
     return window.POS_CONFIG?.swUrl || new URL('sw.js', document.baseURI).href;
 }
 
+const OFFLINE_CACHE_NAME = 'poskasir-v3';
+
 async function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return null;
     return navigator.serviceWorker.register(serviceWorkerUrl());
+}
+
+function updateOfflineProgress(done, total, label) {
+    const el = document.getElementById('offline-install-progress');
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    if (el) {
+        el.classList.remove('hidden');
+        el.textContent = label || `Mengunduh ke perangkat… ${done}/${total} (${pct}%)`;
+    }
+}
+
+function hideOfflineProgress() {
+    document.getElementById('offline-install-progress')?.classList.add('hidden');
+}
+
+async function fetchPrecacheManifest() {
+    const url = window.POS_CONFIG?.routes?.offlinePrecache;
+    if (!url) return [];
+
+    const res = await fetch(url, {
+        headers: { Accept: 'application/json', 'X-CSRF-TOKEN': window.POS_CONFIG.csrf },
+    });
+    const json = await res.json();
+    if (!json.success || !Array.isArray(json.urls)) {
+        throw new Error(json.message || 'Gagal memuat daftar offline');
+    }
+    return json.urls;
+}
+
+async function precacheUrls(urls, onProgress) {
+    if (!('caches' in window)) return { cached: 0, total: urls.length };
+
+    const cache = await caches.open(OFFLINE_CACHE_NAME);
+    let cached = 0;
+
+    for (let i = 0; i < urls.length; i += 1) {
+        const rawUrl = urls[i];
+        try {
+            const isExternal = /^https?:\/\//i.test(rawUrl) && !rawUrl.startsWith(window.location.origin);
+            const response = await fetch(rawUrl, {
+                credentials: isExternal ? 'omit' : 'same-origin',
+                mode: isExternal ? 'cors' : 'same-origin',
+                cache: 'no-cache',
+            });
+            if (response.ok) {
+                await cache.put(rawUrl, response.clone());
+                cached += 1;
+            }
+        } catch (_) {
+            // Lewati URL yang gagal; lanjut ke berikutnya.
+        }
+        onProgress?.(i + 1, urls.length, cached);
+    }
+
+    localStorage.setItem('poskasir_precache_at', new Date().toISOString());
+    localStorage.setItem('poskasir_precache_count', String(cached));
+
+    return { cached, total: urls.length };
+}
+
+async function prepareOfflineApp({ enableOnServer = true, labelPrefix = 'Menyiapkan offline' } = {}) {
+    if (!navigator.onLine) {
+        toast('Butuh koneksi internet untuk unduh menu & script offline');
+        return false;
+    }
+
+    try {
+        toast(`${labelPrefix}…`);
+        await registerServiceWorker();
+
+        updateOfflineProgress(0, 1, `${labelPrefix}…`);
+        const urls = await fetchPrecacheManifest();
+        if (!urls.length) {
+            throw new Error('Daftar halaman offline kosong');
+        }
+
+        await precacheUrls(urls, (done, total, cached) => {
+            updateOfflineProgress(done, total, `${labelPrefix}… ${cached} file siap`);
+        });
+
+        if (enableOnServer && window.POS_CONFIG?.routes?.offlineEnable) {
+            const res = await fetch(window.POS_CONFIG.routes.offlineEnable, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
+                },
+            });
+            const json = await res.json();
+            OfflineStore.setOfflineEnabled(true);
+            const offlineLabel = document.getElementById('offline-mode-label');
+            if (offlineLabel) {
+                offlineLabel.textContent = 'Aktif';
+                offlineLabel.classList.add('text-emerald-600');
+            }
+            if (json.message) toast(json.message);
+        }
+
+        await syncAll();
+        hideOfflineProgress();
+        toast('Aplikasi siap dipakai offline — semua menu sudah tersimpan di perangkat');
+        return true;
+    } catch (err) {
+        hideOfflineProgress();
+        toast(err.message || 'Gagal menyiapkan offline');
+        return false;
+    }
 }
 
 let deferredInstallPrompt = null;
@@ -119,32 +228,36 @@ function updateInstallUi() {
 
 async function installPwa() {
     if (isPwaInstalled()) {
-        toast('Aplikasi sudah terpasang');
+        toast('Memperbarui cache offline…');
+        await prepareOfflineApp({ labelPrefix: 'Memperbarui cache' });
         updateInstallUi();
-        return false;
+        return true;
     }
 
-    if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        const choice = await deferredInstallPrompt.userChoice;
-        deferredInstallPrompt = null;
-        if (choice?.outcome === 'accepted') {
-            toast('Aplikasi dipasang');
-            updateInstallUi();
-            return true;
+    let installed = false;
+    window.__poskasir_install_in_progress = true;
+
+    try {
+        if (deferredInstallPrompt) {
+            deferredInstallPrompt.prompt();
+            const choice = await deferredInstallPrompt.userChoice;
+            deferredInstallPrompt = null;
+            installed = choice?.outcome === 'accepted';
+            if (! installed) {
+                toast('Pemasangan dibatalkan — tetap mengunduh data offline…');
+            }
+        } else if (isIosSafari()) {
+            toast('Di Safari: Bagikan → Tambah ke Layar Utama. Mengunduh menu offline…');
+        } else {
+            toast('Mengunduh menu & script offline…');
         }
-        toast('Pemasangan dibatalkan');
+
+        await prepareOfflineApp({ labelPrefix: 'Install aplikasi' });
         updateInstallUi();
-        return false;
+        return installed;
+    } finally {
+        window.__poskasir_install_in_progress = false;
     }
-
-    if (isIosSafari()) {
-        toast('Di Safari: Bagikan → Tambah ke Layar Utama');
-        return false;
-    }
-
-    toast('Buka menu browser, lalu pilih Install app');
-    return false;
 }
 
 window.addEventListener('beforeinstallprompt', (event) => {
@@ -156,34 +269,15 @@ window.addEventListener('beforeinstallprompt', (event) => {
 window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
     toast('Aplikasi berhasil dipasang');
-    updateInstallUi();
+    if (! window.__poskasir_install_in_progress) {
+        prepareOfflineApp({ labelPrefix: 'Install aplikasi' }).finally(updateInstallUi);
+    } else {
+        updateInstallUi();
+    }
 });
 
 async function enableOffline() {
-    if (!window.POS_CONFIG?.routes?.offlineEnable) return;
-
-    try {
-        await registerServiceWorker();
-
-        const res = await fetch(window.POS_CONFIG.routes.offlineEnable, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
-            },
-        });
-        const json = await res.json();
-        OfflineStore.setOfflineEnabled(true);
-        await syncAll();
-        const label = document.getElementById('offline-mode-label');
-        if (label) {
-            label.textContent = 'Aktif';
-            label.classList.add('text-emerald-600');
-        }
-        toast(json.message || 'Mode offline aktif');
-    } catch (err) {
-        toast(err.message || 'Gagal mengaktifkan offline');
-    }
+    await prepareOfflineApp({ enableOnServer: true, labelPrefix: 'Aktifkan offline' });
 }
 
 async function disableOffline() {
@@ -210,6 +304,7 @@ window.PosApp = {
     enableOffline,
     disableOffline,
     installPwa,
+    prepareOfflineApp,
     updateInstallUi,
     OfflineStore,
 };

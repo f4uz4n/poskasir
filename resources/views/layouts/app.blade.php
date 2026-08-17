@@ -149,6 +149,7 @@
                 syncPush: @json(auth()->check() ? route('api.sync.push') : null),
                 offlineEnable: @json(auth()->check() ? route('settings.offline.enable') : null),
                 offlineDisable: @json(auth()->check() ? route('settings.offline.disable') : null),
+                offlinePrecache: @json(auth()->check() && Route::has('settings.offline.precache-manifest') ? route('settings.offline.precache-manifest') : null),
                 transactionsStore: @json(auth()->check() ? route('transactions.store') : null),
                 transactionsRecent: @json(auth()->check() ? route('transactions.recent') : null),
                 printerDevices: @json(auth()->check() ? route('printer.devices') : null),

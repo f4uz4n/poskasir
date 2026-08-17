@@ -136,6 +136,7 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/settings', [SettingController::class, 'index'])->name('settings.index');
         Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
+        Route::get('/settings/offline/precache-manifest', [SettingController::class, 'precacheManifest'])->name('settings.offline.precache-manifest');
         Route::post('/settings/offline/enable', [SettingController::class, 'enableOffline'])->name('settings.offline.enable');
         Route::post('/settings/offline/disable', [SettingController::class, 'disableOffline'])->name('settings.offline.disable');
         Route::post('/settings/wipe', [SettingController::class, 'wipe'])->middleware('owner')->name('settings.wipe');

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'poskasir-v2';
+const CACHE_NAME = 'poskasir-v3';
 const BASE = new URL('./', self.location).pathname.replace(/\/?$/, '/');
 
 const PRECACHE = [
@@ -27,6 +27,21 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+async function matchCachedNavigate(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+
+  const url = new URL(request.url);
+  const pathname = url.pathname.endsWith('/') ? url.pathname : url.pathname + '/';
+  const alt = await caches.match(pathname) || await caches.match(url.pathname.replace(/\/$/, ''));
+  if (alt) return alt;
+
+  return caches.match(BASE + 'pos')
+    || caches.match(BASE + 'dashboard')
+    || caches.match(BASE + 'login')
+    || caches.match(BASE);
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -44,11 +59,13 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          if (response && response.status === 200) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
-        .catch(() => caches.match(request).then((r) => r || caches.match(BASE + 'pos') || caches.match(BASE)))
+        .catch(() => matchCachedNavigate(request))
     );
     return;
   }

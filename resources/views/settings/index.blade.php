@@ -185,7 +185,10 @@
     <div class="space-y-4 min-w-0">
         <div class="card p-4 sm:p-5">
             <h2 class="font-bold mb-2">Install aplikasi offline (PWA)</h2>
-            <p class="text-sm text-slate-500 mb-4">Pasang ke perangkat, lalu aktifkan mode offline agar data tersimpan di HP/laptop.</p>
+            <p class="text-sm text-slate-500 mb-4">
+                Klik <strong>Install aplikasi</strong> untuk pasang ke HP/laptop sekaligus mengunduh semua menu, script, dan data ke perangkat.
+                Setelah selesai, aplikasi bisa dibuka offline tanpa perlu buka setiap menu satu per satu.
+            </p>
             <div class="rounded-xl border border-slate-200 p-4 mb-4 space-y-3">
                 <div class="flex items-center justify-between gap-3">
                     <span class="text-sm font-medium">Status mode offline</span>
@@ -194,10 +197,11 @@
                     </span>
                 </div>
                 <p id="install-app-hint" class="text-xs text-slate-500">Pasang ke layar HP/laptop agar bisa dibuka seperti aplikasi.</p>
+                <p id="offline-install-progress" class="hidden text-xs font-medium text-brand-700 rounded-lg bg-brand-50 border border-brand-100 px-3 py-2"></p>
             </div>
             <div class="flex flex-col sm:flex-row gap-2">
                 <button type="button" id="btn-install-app" class="btn btn-primary flex-1 whitespace-normal">Install aplikasi</button>
-                <button type="button" id="btn-enable-offline" class="btn btn-secondary flex-1 whitespace-normal">Aktifkan Offline</button>
+                <button type="button" id="btn-enable-offline" class="btn btn-secondary flex-1 whitespace-normal">Perbarui cache offline</button>
             </div>
             <div class="mt-4 flex flex-col sm:flex-row gap-2">
                 <button type="button" id="btn-sync-now" class="btn btn-ghost flex-1 whitespace-normal">Sinkron data</button>
