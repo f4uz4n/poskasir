@@ -113,18 +113,21 @@ export function initPos() {
         document.getElementById('btn-reconnect-printer')?.classList.add('hidden');
     }
 
-    function focusBarcodeInput(keepKeyboard = true) {
+    function focusBarcodeInput() {
         if (settings.scanner_enabled === false || !els.barcode) return;
+        const active = document.activeElement;
+        if (active && active !== els.barcode && active.matches?.('input:not([data-no-keyboard]), textarea, select')) {
+            return;
+        }
         window.requestAnimationFrame(() => {
+            els.barcode.setAttribute('readonly', 'readonly');
+            els.barcode.setAttribute('inputmode', 'none');
             try {
                 els.barcode.focus({ preventScroll: true });
-                if (keepKeyboard && els.barcode.setSelectionRange) {
-                    const len = els.barcode.value.length;
-                    els.barcode.setSelectionRange(len, len);
-                }
             } catch (_) {
                 els.barcode.focus();
             }
+            requestAnimationFrame(() => els.barcode.removeAttribute('readonly'));
         });
     }
 
@@ -617,7 +620,6 @@ export function initPos() {
         },
     });
 
-    // Scanner keyboard-wedge: pertahankan fokus agar keyboard virtual tetap tampil
     els.barcode?.addEventListener('focus', () => {
         if (settings.scanner_enabled === false) return;
         setDeviceBadge(els.scannerStatus, 'Scanner', true, 'siap');
@@ -625,10 +627,9 @@ export function initPos() {
     els.barcode?.addEventListener('blur', () => {
         if (settings.scanner_enabled === false) return;
         const active = document.activeElement;
-        const keepFocus = active?.closest?.('#checkout-modal, #history-modal, .pos-cart-panel');
-        if (!keepFocus && !active?.closest?.('input, textarea, select, button')) {
-            setTimeout(() => focusBarcodeInput(), 120);
-        }
+        if (active?.matches?.('input:not([data-no-keyboard]), textarea, select')) return;
+        if (active?.closest?.('#checkout-modal, #history-modal, button, a, select')) return;
+        setTimeout(() => focusBarcodeInput(), 80);
     });
 
     // Selalu cache katalog/settings perangkat (printer+scanner) ke lokal

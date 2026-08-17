@@ -14,8 +14,8 @@
     <div class="pos-products-col space-y-4 min-h-0">
         <div class="card p-4 shrink-0">
             <div class="flex flex-col sm:flex-row gap-3">
-                <input id="barcode-input" type="text" class="input" placeholder="Scan / ketik barcode lalu Enter..." autofocus autocomplete="off" inputmode="search" enterkeyhint="search">
-                <input id="product-search" type="text" class="input" placeholder="Cari nama produk..." inputmode="search">
+                <input id="barcode-input" type="text" class="input" placeholder="Scan barcode (keyboard tidak tampil)" autofocus autocomplete="off" inputmode="none" enterkeyhint="done" data-no-keyboard readonly>
+                <input id="product-search" type="text" class="input" placeholder="Cari nama produk..." inputmode="text" enterkeyhint="search">
                 <div class="sm:w-48 shrink-0">
                     <select id="category-filter" class="input" data-search="true" data-placeholder="Semua kategori">
                         <option value="">Semua kategori</option>

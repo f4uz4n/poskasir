@@ -7,6 +7,7 @@ use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
@@ -136,11 +137,21 @@ class ProductController extends Controller
         $trackStock = $request->boolean('track_stock');
         $hasExpiry = $request->boolean('has_expiry');
 
+        $ownerId = Auth::user()->storeOwnerId();
+        $productId = $isUpdate ? $request->route('product')?->id : null;
+
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'category_id' => ['nullable', 'exists:categories,id'],
             'sku' => ['nullable', 'string', 'max:100'],
-            'barcode' => ['nullable', 'string', 'max:100'],
+            'barcode' => [
+                'required',
+                'string',
+                'max:100',
+                Rule::unique('products', 'barcode')
+                    ->where(fn ($q) => $q->where('user_id', $ownerId))
+                    ->ignore($productId),
+            ],
             'price' => ['required', 'numeric', 'min:0'],
             'cost' => ['nullable', 'numeric', 'min:0'],
             'stock' => [$trackStock ? 'required' : 'nullable', 'integer', 'min:0'],

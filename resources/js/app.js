@@ -312,6 +312,34 @@ window.PosApp = {
 window.PosPrinter = printer;
 window.OfflineStore = OfflineStore;
 
+function suppressVirtualKeyboard(el) {
+    if (!el || el.dataset.noKeyboardBound === '1') return;
+    el.dataset.noKeyboardBound = '1';
+    el.setAttribute('inputmode', 'none');
+    el.setAttribute('autocomplete', 'off');
+    el.setAttribute('autocorrect', 'off');
+    el.setAttribute('spellcheck', 'false');
+
+    const hide = () => {
+        el.setAttribute('readonly', 'readonly');
+        requestAnimationFrame(() => {
+            el.removeAttribute('readonly');
+        });
+    };
+
+    el.addEventListener('touchstart', hide, { passive: true });
+    el.addEventListener('focus', hide);
+    el.removeAttribute('readonly');
+}
+
+function initNoKeyboardFields(scope = document) {
+    scope.querySelectorAll('input[data-no-keyboard], input#barcode-input, input#product-barcode').forEach(suppressVirtualKeyboard);
+}
+
+window.PosApp = window.PosApp || {};
+window.PosApp.suppressVirtualKeyboard = suppressVirtualKeyboard;
+window.PosApp.initNoKeyboardFields = initNoKeyboardFields;
+
 document.addEventListener('DOMContentLoaded', () => {
     updateNetStatus();
     window.addEventListener('online', () => {
@@ -371,5 +399,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     registerServiceWorker().catch(() => {});
 
+    initNoKeyboardFields();
     initPos();
 });

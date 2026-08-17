@@ -159,8 +159,13 @@
 
             <div class="product-modal-grid two-col">
                 <div class="sm:col-span-2">
+                    <label class="text-xs font-medium text-slate-600">Barcode <span class="text-red-500">*</span></label>
+                    <input name="barcode" id="product-barcode" class="input mt-1" placeholder="Scan barcode produk" required maxlength="100" inputmode="none" autocomplete="off" data-no-keyboard readonly>
+                    <p class="text-[11px] text-slate-400 mt-1">Wajib diisi. Gunakan scanner — keyboard tidak tampil di field ini.</p>
+                </div>
+                <div class="sm:col-span-2">
                     <label class="text-xs font-medium text-slate-600">Nama produk</label>
-                    <input name="name" id="product-name" class="input mt-1" placeholder="Contoh: Teh Botol" required>
+                    <input name="name" id="product-name" type="text" class="input mt-1" placeholder="Contoh: Teh Botol" required inputmode="text">
                 </div>
                 <div class="sm:col-span-2">
                     <label class="text-xs font-medium text-slate-600">Kategori</label>
@@ -175,13 +180,9 @@
                         @endforeach
                     </select>
                 </div>
-                <div>
-                    <label class="text-xs font-medium text-slate-600">Barcode</label>
-                    <input name="barcode" id="product-barcode" class="input mt-1" placeholder="Opsional">
-                </div>
-                <div>
+                <div class="sm:col-span-2">
                     <label class="text-xs font-medium text-slate-600">SKU</label>
-                    <input name="sku" id="product-sku" class="input mt-1" placeholder="Opsional">
+                    <input name="sku" id="product-sku" type="text" class="input mt-1" placeholder="Opsional" inputmode="text">
                 </div>
                 <div>
                     <label class="text-xs font-medium text-slate-600">HPP</label>
@@ -342,7 +343,8 @@
         resetProductFormCreate();
         openModal(productModal);
         initCategorySelect();
-        setTimeout(() => document.getElementById('product-name')?.focus(), 50);
+        window.PosApp?.initNoKeyboardFields?.(productModal);
+        setTimeout(() => document.getElementById('product-barcode')?.focus(), 50);
     }
 
     function openEditProduct(btn) {
