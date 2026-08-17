@@ -12,6 +12,7 @@ use App\Http\Controllers\Developer\PlanController as DeveloperPlanController;
 use App\Http\Controllers\Developer\SettingController as DeveloperSettingController;
 use App\Http\Controllers\ExpiryMonitorController;
 use App\Http\Controllers\KasirController;
+use App\Http\Controllers\MediaController;
 use App\Http\Controllers\PayableController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\PrinterController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\SettingController;
 use App\Http\Controllers\StockOpnameController;
 use App\Http\Controllers\StockReportController;
 use App\Http\Controllers\SubscriptionController;
+use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
 
@@ -52,6 +54,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/subscription/payment/{payment}/proof-image', [SubscriptionController::class, 'showProof'])->name('subscription.proof.image');
+    Route::get('/media/{path}', [MediaController::class, 'show'])->where('path', '.*')->name('media.show');
 
     Route::middleware('developer')->prefix('developer')->name('developer.')->group(function () {
         Route::get('/', [DeveloperDashboardController::class, 'index'])->name('dashboard');
@@ -118,6 +121,11 @@ Route::middleware('auth')->group(function () {
         Route::get('/purchases/create', [PurchaseController::class, 'create'])->name('purchases.create');
         Route::post('/purchases', [PurchaseController::class, 'store'])->name('purchases.store');
         Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->name('purchases.show');
+
+        Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
+        Route::post('/suppliers', [SupplierController::class, 'store'])->name('suppliers.store');
+        Route::put('/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
+        Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');
 
         Route::get('/receivables', [ReceivableController::class, 'index'])->name('receivables.index');
         Route::post('/receivables', [ReceivableController::class, 'store'])->name('receivables.store');

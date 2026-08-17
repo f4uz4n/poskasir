@@ -531,6 +531,13 @@ async function testPrint() {
             }
         }
         await window.PosPrinter.printTest();
+        if ((typeSelect?.value || 'bluetooth') === 'bluetooth') {
+            window.OfflineStore?.saveDeviceSettings(collectDeviceSettings({
+                bt_paired: true,
+                bt_device_id: window.PosPrinter.btDevice?.id || null,
+                bt_device_name: window.PosPrinter.btDevice?.name || null,
+            }));
+        }
         window.PosApp?.toast('Struk tes dikirim ke printer');
     } catch (e) {
         window.PosApp?.toast(e.message || 'Gagal tes cetak');

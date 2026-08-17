@@ -330,11 +330,29 @@ class PosPrinter {
                 if (parsed?.id) return parsed;
             } catch (_) {}
         }
-        const deviceLocal = OfflineStore.mergeSettings({}, null);
-        if (deviceLocal?.bt_device_id) {
-            return { id: deviceLocal.bt_device_id, name: deviceLocal.bt_device_name || '' };
-        }
+
+        try {
+            const deviceRaw = localStorage.getItem('kasirflow_device_settings');
+            if (deviceRaw) {
+                const device = JSON.parse(deviceRaw);
+                if (device?.bt_device_id) {
+                    return { id: device.bt_device_id, name: device.bt_device_name || '' };
+                }
+            }
+        } catch (_) {}
+
         return null;
+    }
+
+    isPairedLocally() {
+        if (this.settings.bt_paired) return true;
+        if (this.loadSavedBluetooth()?.id) return true;
+        try {
+            const device = JSON.parse(localStorage.getItem('kasirflow_device_settings') || 'null');
+            return Boolean(device?.bt_paired || device?.bt_device_id);
+        } catch (_) {
+            return false;
+        }
     }
 
     /** Sudah pernah dipasangkan di browser ini (tidak harus sedang GATT connected). */
@@ -343,16 +361,17 @@ class PosPrinter {
         if (type === 'none') return false;
         if (type === 'usb') return true;
         if (this.isConnected()) return true;
+        if (this.isPairedLocally()) return true;
 
         const saved = this.loadSavedBluetooth();
-        if (saved?.id || this.settings.bt_paired) return true;
+        if (saved?.id) return true;
 
-        if (!navigator.bluetooth?.getDevices) return Boolean(saved?.id);
+        if (!navigator.bluetooth?.getDevices) return false;
         try {
             const devices = await navigator.bluetooth.getDevices();
             return devices.length > 0;
         } catch (_) {
-            return Boolean(saved?.id);
+            return false;
         }
     }
 
@@ -515,11 +534,15 @@ class PosPrinter {
             await this.connectWindowsUsb();
             return true;
         }
+
         const ok = await this.reconnectBluetooth();
-        if (!ok) {
-            throw new Error('Printer Bluetooth belum siap. Buka Pengaturan → Pasangkan printer sekali (sama origin/URL), lalu kembali ke Kasir.');
+        if (ok) return true;
+
+        if (this.isPairedLocally()) {
+            throw new Error('Printer siap — ketuk Sambungkan ulang sekali lalu cetak.');
         }
-        return true;
+
+        throw new Error('Printer belum dipasangkan. Buka Pengaturan → Pasangkan printer.');
     }
 
     async discoverWriteCharacteristic(server) {

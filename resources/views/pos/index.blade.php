@@ -9,14 +9,13 @@
      data-products='@json($products)'
      data-categories='@json($categories)'
      data-settings='@json($settings)'
-     class="pos-grid grid gap-4"
-     style="grid-template-columns: 1.4fr 1fr;">
+     class="pos-shell">
 
-    <div class="space-y-4">
-        <div class="card p-4">
+    <div class="pos-products-col space-y-4 min-h-0">
+        <div class="card p-4 shrink-0">
             <div class="flex flex-col sm:flex-row gap-3">
-                <input id="barcode-input" type="text" class="input" placeholder="Scan / ketik barcode lalu Enter..." autofocus autocomplete="off">
-                <input id="product-search" type="text" class="input" placeholder="Cari nama produk...">
+                <input id="barcode-input" type="text" class="input" placeholder="Scan / ketik barcode lalu Enter..." autofocus autocomplete="off" inputmode="search" enterkeyhint="search">
+                <input id="product-search" type="text" class="input" placeholder="Cari nama produk..." inputmode="search">
                 <div class="sm:w-48 shrink-0">
                     <select id="category-filter" class="input" data-search="true" data-placeholder="Semua kategori">
                         <option value="">Semua kategori</option>
@@ -38,11 +37,11 @@
             </div>
         </div>
 
-        <div id="product-grid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[68vh] overflow-y-auto pr-1"></div>
+        <div id="product-grid" class="pos-product-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 pr-1 min-h-0"></div>
     </div>
 
-    <div class="card p-4 flex flex-col min-h-[70vh]">
-        <div class="flex items-center justify-between mb-3">
+    <div class="pos-cart-panel card p-4 flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-3 shrink-0">
             <h2 class="font-bold text-lg">Keranjang</h2>
             <div class="flex items-center gap-2">
                 <button type="button" id="btn-pos-history" class="btn-icon" title="Riwayat transaksi" aria-label="Riwayat transaksi">
@@ -55,56 +54,58 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2 mb-3">
+        <div class="grid grid-cols-2 gap-2 mb-3 shrink-0">
             <button type="button" class="order-type-btn btn btn-primary py-2 text-sm" data-type="dine_in">Dine In</button>
             <button type="button" class="order-type-btn btn btn-ghost py-2 text-sm" data-type="takeaway">Take Away</button>
         </div>
-        <div id="table-number-wrap" class="mb-3">
+        <div id="table-number-wrap" class="mb-3 shrink-0">
             <input id="table-number" type="text" class="input" placeholder="No. meja (opsional)">
         </div>
 
-        <div id="cart-list" class="flex-1 overflow-y-auto mb-3"></div>
+        <div id="cart-list" class="pos-cart-list flex-1 min-h-0 overflow-y-auto mb-3"></div>
 
-        <div class="space-y-2 border-t border-slate-100 pt-3 text-sm">
-            <div class="flex justify-between"><span>Subtotal</span><span id="cart-subtotal">Rp 0</span></div>
-            <div class="flex justify-between items-center gap-2">
-                <span>Diskon</span>
-                <div class="relative w-40">
-                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
-                    <input id="cart-discount" type="text" inputmode="numeric" value="0" class="input text-right py-1 pl-8" placeholder="0">
+        <div class="pos-cart-footer shrink-0 space-y-2 border-t border-slate-100 pt-3">
+            <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span>Subtotal</span><span id="cart-subtotal">Rp 0</span></div>
+                <div class="flex justify-between items-center gap-2">
+                    <span>Diskon</span>
+                    <div class="relative w-40">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
+                        <input id="cart-discount" type="text" inputmode="numeric" value="0" class="input text-right py-1 pl-8" placeholder="0">
+                    </div>
                 </div>
+                <div class="flex justify-between"><span>Pajak (<span id="tax-label">0</span>%)</span><span id="cart-tax">Rp 0</span></div>
+                <div class="flex justify-between text-lg font-extrabold"><span>Total</span><span id="cart-total">Rp 0</span></div>
             </div>
-            <div class="flex justify-between"><span>Pajak (<span id="tax-label">0</span>%)</span><span id="cart-tax">Rp 0</span></div>
-            <div class="flex justify-between text-lg font-extrabold"><span>Total</span><span id="cart-total">Rp 0</span></div>
-        </div>
 
-        <div class="mt-3 space-y-2">
-            <input id="customer-name" type="text" class="input" placeholder="Nama pelanggan (opsional)">
-            <div class="grid grid-cols-2 gap-2">
-                <select id="payment-method" class="input">
-                    <option value="cash">Tunai</option>
-                    <option value="qris">QRIS</option>
-                    <option value="transfer">Transfer</option>
-                    <option value="card">Kartu</option>
-                    <option value="credit">Piutang</option>
-                </select>
-                <div class="relative">
-                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
-                    <input id="paid-amount" type="text" inputmode="numeric" class="input pl-8 text-right font-semibold" placeholder="0">
+            <div class="mt-2 space-y-2">
+                <input id="customer-name" type="text" class="input" placeholder="Nama pelanggan (opsional)">
+                <div class="grid grid-cols-2 gap-2">
+                    <select id="payment-method" class="input">
+                        <option value="cash">Tunai</option>
+                        <option value="qris">QRIS</option>
+                        <option value="transfer">Transfer</option>
+                        <option value="card">Kartu</option>
+                        <option value="credit">Piutang</option>
+                    </select>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
+                        <input id="paid-amount" type="text" inputmode="numeric" class="input pl-8 text-right font-semibold" placeholder="0">
+                    </div>
                 </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" id="btn-pay-exact" class="btn btn-ghost text-xs py-1 px-2">Uang pas</button>
+                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="10000">10rb</button>
+                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="20000">20rb</button>
+                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="50000">50rb</button>
+                    <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="100000">100rb</button>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span>Kembalian</span>
+                    <span id="change-amount" class="font-semibold">Rp 0</span>
+                </div>
+                <button type="button" id="btn-checkout" class="btn btn-primary w-full py-3 text-base">Bayar & Cetak</button>
             </div>
-            <div class="flex flex-wrap gap-2">
-                <button type="button" id="btn-pay-exact" class="btn btn-ghost text-xs py-1 px-2">Uang pas</button>
-                <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="10000">10rb</button>
-                <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="20000">20rb</button>
-                <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="50000">50rb</button>
-                <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="100000">100rb</button>
-            </div>
-            <div class="flex justify-between text-sm">
-                <span>Kembalian</span>
-                <span id="change-amount" class="font-semibold">Rp 0</span>
-            </div>
-            <button type="button" id="btn-checkout" class="btn btn-primary w-full py-3 text-base">Bayar & Cetak</button>
         </div>
     </div>
 </div>

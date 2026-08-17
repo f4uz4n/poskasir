@@ -16,7 +16,18 @@
     <div class="card p-4 sm:p-5 mb-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
             <label class="text-xs text-slate-500">Supplier</label>
-            <input name="supplier_name" class="input mt-1" placeholder="Nama supplier" value="{{ old('supplier_name') }}">
+            @if(($suppliers ?? collect())->isNotEmpty())
+                <select name="supplier_id" id="supplier_id" class="input mt-1" data-search="true" data-placeholder="Pilih supplier">
+                    <option value="">— Pilih atau ketik manual —</option>
+                    @foreach($suppliers as $supplier)
+                        <option value="{{ $supplier->id }}" @selected(old('supplier_id') == $supplier->id)>{{ $supplier->name }}</option>
+                    @endforeach
+                </select>
+            @endif
+            <input name="supplier_name" id="supplier_name" class="input mt-2" placeholder="Nama supplier (manual)" value="{{ old('supplier_name') }}">
+            <p class="text-xs text-slate-400 mt-1">
+                <a href="{{ route('suppliers.index') }}" class="text-brand-700 underline">Kelola data supplier</a>
+            </p>
         </div>
         <div>
             <label class="text-xs text-slate-500">Tanggal beli</label>
@@ -194,6 +205,18 @@
     }
 
     addRow();
+    const supplierSelect = document.getElementById('supplier_id');
+    const supplierName = document.getElementById('supplier_name');
+    supplierSelect?.addEventListener('change', function () {
+        const opt = this.options[this.selectedIndex];
+        if (this.value && opt && supplierName) supplierName.value = opt.text.trim();
+    });
+    if (window.jQuery && supplierSelect) {
+        jQuery(supplierSelect).on('change', function () {
+            const opt = this.options[this.selectedIndex];
+            if (this.value && opt && supplierName) supplierName.value = jQuery(opt).text().trim();
+        });
+    }
 })();
 </script>
 @endpush

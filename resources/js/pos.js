@@ -51,6 +51,13 @@ export function initPos() {
     let orderType = 'dine_in';
     let printerReady = false;
 
+    try {
+        const localDevice = JSON.parse(localStorage.getItem('kasirflow_device_settings') || 'null');
+        if (localDevice) {
+            settings = OfflineStore.mergeSettings(settings, localDevice);
+        }
+    } catch (_) {}
+
     const els = {
         grid: document.getElementById('product-grid'),
         cartList: document.getElementById('cart-list'),
@@ -82,6 +89,14 @@ export function initPos() {
     // Cache pengaturan printer/scanner lokal setiap buka kasir
     OfflineStore.saveDeviceSettings(settings);
 
+    function isPrinterPaired() {
+        return printerReady
+            || settings.bt_paired
+            || settings.printer_type === 'usb'
+            || printer.isPairedLocally?.()
+            || Boolean(printer.loadSavedBluetooth?.()?.id);
+    }
+
     function markPrinterReady(detail = '') {
         printerReady = true;
         const name = detail
@@ -98,6 +113,21 @@ export function initPos() {
         document.getElementById('btn-reconnect-printer')?.classList.add('hidden');
     }
 
+    function focusBarcodeInput(keepKeyboard = true) {
+        if (settings.scanner_enabled === false || !els.barcode) return;
+        window.requestAnimationFrame(() => {
+            try {
+                els.barcode.focus({ preventScroll: true });
+                if (keepKeyboard && els.barcode.setSelectionRange) {
+                    const len = els.barcode.value.length;
+                    els.barcode.setSelectionRange(len, len);
+                }
+            } catch (_) {
+                els.barcode.focus();
+            }
+        });
+    }
+
     printer.onStatusChange = (label, connected, type) => {
         if (connected) {
             let detail = '';
@@ -108,8 +138,7 @@ export function initPos() {
             markPrinterReady(detail);
             return;
         }
-        // Putus sementara: tetap tampilkan "siap" jika sudah pernah dipasangkan
-        if (printerReady || settings.bt_paired) {
+        if (isPrinterPaired()) {
             markPrinterReady(settings.bt_device_name || settings.printer_name || '');
             return;
         }
@@ -255,6 +284,7 @@ export function initPos() {
             });
         }
         renderCart();
+        focusBarcodeInput();
     }
 
     function findByBarcode(code) {
@@ -348,6 +378,7 @@ export function initPos() {
 
         lastTransaction = payload;
         try {
+            await printer.autoConnect();
             const printResult = await printer.printReceipt(payload, settings);
             if (printResult?.drawerError) {
                 toast(printResult.drawerError);
@@ -367,6 +398,7 @@ export function initPos() {
         els.modalMsg.textContent = `Invoice ${resultInvoice} · ${typeLabel} · Total ${formatMoney(payload.total)}`;
         els.modal.classList.remove('hidden');
         els.modal.classList.add('flex');
+        focusBarcodeInput();
     }
 
     els.grid.addEventListener('click', (e) => {
@@ -433,6 +465,7 @@ export function initPos() {
     document.getElementById('btn-close-modal')?.addEventListener('click', () => {
         els.modal.classList.add('hidden');
         els.modal.classList.remove('flex');
+        focusBarcodeInput();
     });
     document.getElementById('btn-reprint')?.addEventListener('click', async () => {
         if (!lastTransaction) return;
@@ -580,13 +613,22 @@ export function initPos() {
                 toast(`Barcode ${code} tidak ditemukan`);
             }
             if (els.barcode) els.barcode.value = '';
+            focusBarcodeInput();
         },
     });
 
-    // Scanner keyboard-wedge siap menerima input di kolom barcode
+    // Scanner keyboard-wedge: pertahankan fokus agar keyboard virtual tetap tampil
     els.barcode?.addEventListener('focus', () => {
         if (settings.scanner_enabled === false) return;
         setDeviceBadge(els.scannerStatus, 'Scanner', true, 'siap');
+    });
+    els.barcode?.addEventListener('blur', () => {
+        if (settings.scanner_enabled === false) return;
+        const active = document.activeElement;
+        const keepFocus = active?.closest?.('#checkout-modal, #history-modal, .pos-cart-panel');
+        if (!keepFocus && !active?.closest?.('input, textarea, select, button')) {
+            setTimeout(() => focusBarcodeInput(), 120);
+        }
     });
 
     // Selalu cache katalog/settings perangkat (printer+scanner) ke lokal
@@ -635,19 +677,15 @@ export function initPos() {
             return;
         }
 
-        // Jika sudah pernah dipasangkan: anggap siap, jangan minta sambungkan ulang
-        const paired = await printer.isPaired();
-        if (paired || settings.bt_paired || type === 'usb') {
+        const paired = isPrinterPaired() || await printer.isPaired();
+        if (paired || type === 'usb') {
             markPrinterReady(settings.bt_device_name || settings.printer_name || '');
-        } else {
-            if (els.printerStatus) {
-                els.printerStatus.textContent = 'Printer: menghubungkan…';
-                els.printerStatus.className = 'device-badge inline-flex items-center px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-medium';
-            }
+        } else if (els.printerStatus) {
+            els.printerStatus.textContent = 'Printer: menghubungkan…';
+            els.printerStatus.className = 'device-badge inline-flex items-center px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-medium';
             reconnectBtn?.classList.add('hidden');
         }
 
-        // Sambungkan diam-diam di latar (GATT); gagal pun tetap "siap" jika sudah paired
         const tryConnect = async () => {
             try {
                 const ok = await printer.autoConnect();
@@ -656,11 +694,11 @@ export function initPos() {
                     return true;
                 }
             } catch (_) {}
+            if (isPrinterPaired()) markPrinterReady();
             return false;
         };
 
         if (!(await tryConnect()) && !paired && type === 'bluetooth') {
-            // Belum pernah pair sama sekali
             setDeviceBadge(els.printerStatus, 'Printer', false);
             reconnectBtn?.classList.remove('hidden');
         }
@@ -668,9 +706,11 @@ export function initPos() {
         if (type === 'bluetooth') {
             setInterval(() => {
                 if (!printer.isConnected()) tryConnect();
-            }, 10000);
+            }, 15000);
         }
     })();
+
+    focusBarcodeInput();
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && !printer.isConnected()) {

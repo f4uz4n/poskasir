@@ -68,7 +68,7 @@ class StoreSetting extends Model
                 return null;
             }
 
-            return Storage::disk('public')->url($this->store_logo);
+            return route('media.show', ['path' => $this->store_logo]);
         });
     }
 }

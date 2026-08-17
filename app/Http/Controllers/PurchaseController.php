@@ -6,6 +6,7 @@ use App\Models\Payable;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseItem;
+use App\Models\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -44,12 +45,18 @@ class PurchaseController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'barcode', 'sku', 'cost', 'stock', 'unit']);
 
-        return view('purchases.create', compact('products'));
+        $suppliers = Supplier::where('user_id', $ownerId)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'phone']);
+
+        return view('purchases.create', compact('products', 'suppliers'));
     }
 
     public function store(Request $request)
     {
         $data = $request->validate([
+            'supplier_id' => ['nullable', 'integer', 'exists:suppliers,id'],
             'supplier_name' => ['nullable', 'string', 'max:255'],
             'purchased_at' => ['required', 'date'],
             'discount' => ['nullable', 'numeric', 'min:0'],
@@ -115,11 +122,21 @@ class PurchaseController extends Controller
                 $paymentStatus = 'partial';
             }
 
+            $supplier = null;
+            $supplierName = $data['supplier_name'] ?: 'Supplier';
+            if (! empty($data['supplier_id'])) {
+                $supplier = Supplier::where('user_id', $ownerId)->find($data['supplier_id']);
+                if ($supplier) {
+                    $supplierName = $supplier->name;
+                }
+            }
+
             $purchase = Purchase::create([
                 'user_id' => $ownerId,
                 'created_by' => $actor->id,
                 'code' => 'PO-'.now()->format('YmdHis').'-'.Str::upper(Str::random(4)),
-                'supplier_name' => $data['supplier_name'] ?: 'Supplier',
+                'supplier_id' => $supplier?->id,
+                'supplier_name' => $supplierName,
                 'purchased_at' => $data['purchased_at'],
                 'subtotal' => $subtotal,
                 'discount' => $discount,

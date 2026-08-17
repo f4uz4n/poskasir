@@ -80,7 +80,7 @@ $openIf = function (bool $active) {
     </div>
 </details>
 
-<details class="nav-dropdown {{ $openIf(request()->routeIs(['products.*','purchases.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) }}" data-nav-group="inventori" @if(request()->routeIs(['products.*','purchases.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) open @endif>
+<details class="nav-dropdown {{ $openIf(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) }}" data-nav-group="inventori" @if(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) open @endif>
     <summary class="nav-dropdown-toggle" title="Inventori">
         <span class="nav-toggle-left">
             {!! $icon('products') !!}
@@ -94,6 +94,9 @@ $openIf = function (bool $active) {
         </a>
         <a href="{{ route('purchases.index') }}" class="sidebar-link {{ request()->routeIs('purchases.*') ? 'active' : '' }}" title="Pembelian">
             {!! $icon('purchase') !!}<span class="nav-label">Pembelian</span>
+        </a>
+        <a href="{{ route('suppliers.index') }}" class="sidebar-link {{ request()->routeIs('suppliers.*') ? 'active' : '' }}" title="Supplier">
+            {!! $icon('store') !!}<span class="nav-label">Supplier</span>
         </a>
         <a href="{{ route('price-tags.index') }}" class="sidebar-link {{ request()->routeIs('price-tags.*') ? 'active' : '' }}" title="Label Harga">
             {!! $icon('tag') !!}<span class="nav-label">Label Harga</span>

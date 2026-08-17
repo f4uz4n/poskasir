@@ -1022,9 +1022,73 @@ td .select2-wrap {
 }
 
 @media (max-width: 1024px) {
-    .pos-grid {
+    .pos-shell {
         grid-template-columns: 1fr !important;
     }
+}
+
+/* Tablet 10" landscape — keranjang & pembayaran tanpa scroll kecuali item banyak */
+@media (min-width: 768px) and (min-height: 600px) {
+    .pos-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+        gap: 1rem;
+        height: calc(100dvh - 5.5rem);
+        max-height: calc(100dvh - 5.5rem);
+        overflow: hidden;
+    }
+
+    .pos-products-col,
+    .pos-cart-panel {
+        min-height: 0;
+        max-height: 100%;
+    }
+
+    .pos-products-col {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .pos-product-grid {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none;
+        overflow-y: auto;
+        align-content: start;
+    }
+
+    .pos-cart-panel {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .pos-cart-list {
+        flex: 1 1 auto;
+        min-height: 4rem;
+        max-height: none;
+        overflow-y: auto;
+    }
+
+    .pos-cart-list:not(:has(.cart-item)) {
+        flex: 0 0 auto;
+    }
+
+    .pos-cart-footer {
+        overflow: visible;
+    }
+}
+
+.pos-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 1rem;
+}
+
+.pos-product-grid {
+    max-height: 68vh;
+    overflow-y: auto;
 }
 
 /* Dashboard ROI widget */

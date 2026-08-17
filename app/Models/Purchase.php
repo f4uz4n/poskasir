@@ -12,6 +12,7 @@ class Purchase extends Model
         'user_id',
         'created_by',
         'code',
+        'supplier_id',
         'supplier_name',
         'purchased_at',
         'subtotal',
@@ -47,6 +48,11 @@ class Purchase extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
     }
 
     public function items(): HasMany

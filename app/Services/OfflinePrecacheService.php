@@ -52,6 +52,7 @@ class OfflinePrecacheService
                 'products.index',
                 'purchases.index',
                 'purchases.create',
+                'suppliers.index',
                 'price-tags.index',
                 'stock-opname.index',
                 'stock-opname.create',
