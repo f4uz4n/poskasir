@@ -61,7 +61,10 @@ class SubscriptionEmailVerifier
                 }
 
                 $uidKey = (string) $uid;
-                if (PaymentEmailLog::where('message_uid', $uidKey)->exists()) {
+                $existingLog = PaymentEmailLog::where('message_uid', $uidKey)->first();
+                // Email yang sudah matched/duplicate jangan diproses ulang.
+                // skipped/unmatched boleh dicoba lagi (parser/nominal bisa diperbaiki).
+                if ($existingLog && in_array($existingLog->status, ['matched', 'duplicate'], true)) {
                     continue;
                 }
 
@@ -71,24 +74,22 @@ class SubscriptionEmailVerifier
                 $result['checked']++;
 
                 if (! $parsed) {
-                    PaymentEmailLog::create([
-                        'message_uid' => $uidKey,
+                    $this->upsertEmailLog($uidKey, [
                         'status' => 'skipped',
-                        'raw_snippet' => mb_substr($body, 0, 300),
-                    ]);
+                        'raw_snippet' => mb_substr($this->normalizeSnippet($body), 0, 300),
+                    ], $existingLog);
                     continue;
                 }
 
                 $matchResult = $this->matchAndActivate($parsed, $onlyPayment);
 
-                PaymentEmailLog::create([
-                    'message_uid' => $uidKey,
+                $this->upsertEmailLog($uidKey, [
                     'bank_transaction_ref' => $parsed['bank_transaction_ref'],
                     'amount' => $parsed['amount'],
                     'payment_id' => $matchResult['payment_id'],
                     'status' => $matchResult['status'],
                     'raw_snippet' => $parsed['snippet'],
-                ]);
+                ], $existingLog);
 
                 if ($matchResult['status'] === 'matched') {
                     $result['matched']++;
@@ -99,6 +100,26 @@ class SubscriptionEmailVerifier
         }
 
         return $result;
+    }
+
+    protected function upsertEmailLog(string $uidKey, array $data, ?PaymentEmailLog $existing = null): void
+    {
+        $payload = array_merge(['message_uid' => $uidKey], $data);
+
+        if ($existing) {
+            $existing->update($payload);
+
+            return;
+        }
+
+        PaymentEmailLog::create($payload);
+    }
+
+    protected function normalizeSnippet(string $body): string
+    {
+        $text = html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return preg_replace('/\s+/', ' ', $text) ?? $text;
     }
 
     /** @return array{verified:bool,message:string,payment?:Payment} */
@@ -154,10 +175,7 @@ class SubscriptionEmailVerifier
             ->where('status', 'pending')
             ->where('method', 'transfer')
             ->where(function ($q) use ($amount) {
-                $q->where('expected_amount', $amount)
-                    ->orWhere(function ($inner) use ($amount) {
-                        $inner->whereNull('expected_amount')->where('amount', $amount);
-                    });
+                $q->whereRaw('ABS(COALESCE(expected_amount, amount) - ?) < 0.01', [$amount]);
             });
 
         if ($onlyPayment) {
@@ -202,11 +220,22 @@ class SubscriptionEmailVerifier
         $host = config('subscription.email.imap_host');
         $port = config('subscription.email.imap_port');
         $user = config('subscription.email.username');
-        $pass = config('subscription.email.password');
+        // App Password Gmail: spasi boleh dihapus
+        $pass = preg_replace('/\s+/', '', (string) config('subscription.email.password'));
+
+        @ini_set('default_socket_timeout', '20');
+        if (function_exists('imap_timeout')) {
+            imap_timeout(IMAP_OPENTIMEOUT, 20);
+            imap_timeout(IMAP_READTIMEOUT, 20);
+            imap_timeout(IMAP_WRITETIMEOUT, 20);
+            imap_timeout(IMAP_CLOSETIMEOUT, 10);
+        }
 
         $mailbox = sprintf('{%s:%d/imap/ssl/novalidate-cert}INBOX', $host, $port);
 
-        return @imap_open($mailbox, $user, $pass);
+        return @imap_open($mailbox, $user, $pass, OP_READONLY, 1, [
+            'DISABLE_AUTHENTICATOR' => 'GSSAPI',
+        ]);
     }
 
     /** @return array<int,int> */
@@ -217,14 +246,21 @@ class SubscriptionEmailVerifier
         $days = config('subscription.email.lookback_days', 7);
         $since = date('d-M-Y', strtotime("-{$days} days"));
 
-        $criteria = sprintf('FROM "%s" SUBJECT "%s" SINCE "%s"', $from, $subject, $since);
-        $ids = imap_search($connection, $criteria, SE_UID);
+        // Coba kriteria paling spesifik dulu; berhenti jika sudah dapat hasil
+        $attempts = [
+            sprintf('FROM "%s" SUBJECT "%s" SINCE "%s"', $from, $subject, $since),
+            sprintf('FROM "%s" SUBJECT "Notifikasi" SINCE "%s"', $from, $since),
+            sprintf('FROM "%s" SINCE "%s"', $from, $since),
+        ];
 
-        if (! $ids) {
-            return [];
+        foreach ($attempts as $criteria) {
+            $ids = @imap_search($connection, $criteria, SE_UID);
+            if ($ids) {
+                return array_map(fn ($uid) => imap_msgno($connection, $uid), $ids);
+            }
         }
 
-        return array_map(fn ($uid) => imap_msgno($connection, $uid), $ids);
+        return [];
     }
 
     protected function fetchBody($connection, int $msgNum): string
