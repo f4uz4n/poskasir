@@ -55,7 +55,7 @@ class Payment extends Model
             return null;
         }
 
-        return asset('storage/'.$this->proof_image);
+        return route('subscription.proof.image', $this);
     }
 
     public function manualVerifier(): BelongsTo

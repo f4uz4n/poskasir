@@ -11,6 +11,7 @@ use App\Services\SubscriptionPaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class SubscriptionController extends Controller
@@ -154,6 +155,21 @@ class SubscriptionController extends Controller
             'email_verified_at' => optional($payment->email_verified_at)?->toIso8601String(),
             'bank_transaction_ref' => $payment->bank_transaction_ref,
         ]);
+    }
+
+    public function showProof(Payment $payment)
+    {
+        abort_unless(filled($payment->proof_image), 404);
+
+        $user = Auth::user();
+        abort_unless(
+            $user->isDeveloper() || $payment->user_id === $user->id,
+            403
+        );
+
+        abort_unless(Storage::disk('public')->exists($payment->proof_image), 404);
+
+        return Storage::disk('public')->response($payment->proof_image);
     }
 
     public function uploadProof(Request $request, Payment $payment)

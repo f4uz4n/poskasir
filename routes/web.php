@@ -51,6 +51,7 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/subscription/payment/{payment}/proof-image', [SubscriptionController::class, 'showProof'])->name('subscription.proof.image');
 
     Route::middleware('developer')->prefix('developer')->name('developer.')->group(function () {
         Route::get('/', [DeveloperDashboardController::class, 'index'])->name('dashboard');
