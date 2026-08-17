@@ -16,22 +16,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <title>@yield('title', 'Dashboard') — {{ config('app.name', 'KasirFlow') }}</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     @stack('head')
 </head>
 <body class="bg-app antialiased">
     @auth
-    <div id="app-shell" class="min-h-screen lg:flex">
-        <aside id="app-sidebar" class="app-sidebar hidden lg:flex flex-col fixed inset-y-0 z-50 border-r border-slate-200/70 bg-white/90 backdrop-blur">
-            <div class="sidebar-brand px-4 py-5 flex items-center gap-3 min-h-[76px]">
+    <div id="app-shell" class="min-h-screen">
+        <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
+        <aside id="app-sidebar" class="app-sidebar flex flex-col" aria-label="Menu navigasi">
+            <div class="sidebar-brand px-4 py-5 flex items-center gap-3 min-h-[76px] shrink-0">
                 @php $storeLogo = auth()->user()?->storeOwner()?->storeSetting?->logo_url; @endphp
                 @if($storeLogo)
                     <img src="{{ $storeLogo }}" alt="Logo" class="h-10 w-10 shrink-0 rounded-xl object-cover border border-slate-200 bg-white">
                 @else
                     <div class="h-10 w-10 shrink-0 rounded-xl bg-brand-600 text-white grid place-items-center font-bold">K</div>
                 @endif
-                <div class="brand-text overflow-hidden">
+                <div class="brand-text overflow-hidden min-w-0">
                     <div class="font-extrabold text-lg tracking-tight whitespace-nowrap">{{ config('app.name', 'KasirFlow') }}</div>
                     <div class="text-xs text-slate-500 truncate">
                         {{ auth()->user()->isDeveloper() ? 'Developer Panel' : (auth()->user()->store_name ?: 'Toko') }}
@@ -39,11 +41,11 @@
                 </div>
             </div>
 
-            <nav class="flex-1 px-2 space-y-1 overflow-y-auto">
+            <nav class="sidebar-nav flex-1 min-h-0 px-2 pb-2 space-y-1 overflow-y-auto overscroll-contain">
                 @include('partials.sidebar-nav')
             </nav>
 
-            <div class="p-3 border-t border-slate-100 space-y-2">
+            <div class="p-3 border-t border-slate-100 space-y-2 shrink-0">
                 <div class="sidebar-status flex items-center justify-between text-sm px-2">
                     <span class="nav-label text-slate-500">Status</span>
                     <span id="net-status" class="inline-flex items-center gap-2 font-medium">
@@ -61,33 +63,29 @@
             </div>
         </aside>
 
-        <div id="app-main" class="app-main flex-1 min-h-screen">
-            <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur">
-                <div class="px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-3">
-                        <button id="menu-toggle" class="btn btn-ghost px-3" type="button" title="Menu" aria-label="Menu">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <div id="app-main" class="app-main min-h-screen">
+            <header class="app-header sticky top-0 z-40 border-b border-slate-200/70 bg-white/90 backdrop-blur">
+                <div class="px-3 sm:px-6 py-3 flex items-center justify-between gap-2 sm:gap-3">
+                    <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+                        <button id="menu-toggle" class="btn btn-ghost px-2.5 sm:px-3 shrink-0 relative z-50" type="button" title="Menu" aria-label="Buka menu" aria-controls="app-sidebar" aria-expanded="false">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
                         </button>
-                        <div>
-                            <h1 class="font-bold text-lg leading-tight">@yield('heading', 'Dashboard')</h1>
-                            <p class="text-xs text-slate-500">@yield('subheading', 'Kelola toko Anda')</p>
+                        <div class="min-w-0">
+                            <h1 class="font-bold text-base sm:text-lg leading-tight truncate">@yield('heading', 'Dashboard')</h1>
+                            <p class="text-xs text-slate-500 truncate">@yield('subheading', 'Kelola toko Anda')</p>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 shrink-0">
                         <button id="btn-sync" class="btn btn-ghost text-sm hidden sm:inline-flex" type="button">Sinkron</button>
-                        <div class="text-right hidden sm:block">
-                            <div class="text-sm font-semibold">{{ auth()->user()->name }}</div>
-                            <div class="text-xs text-slate-500">{{ auth()->user()->email }}</div>
+                        <div class="text-right hidden md:block">
+                            <div class="text-sm font-semibold truncate max-w-[10rem]">{{ auth()->user()->name }}</div>
+                            <div class="text-xs text-slate-500 truncate max-w-[10rem]">{{ auth()->user()->email }}</div>
                         </div>
                     </div>
                 </div>
             </header>
 
-            <div id="mobile-nav" class="hidden lg:hidden border-b border-slate-200 bg-white px-3 py-2 space-y-1">
-                @include('partials.sidebar-nav')
-            </div>
-
-            <main class="p-4 sm:p-6">
+            <main class="p-3 sm:p-4 md:p-6">
                 @if(session('success'))
                     <div class="mb-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3">{{ session('success') }}</div>
                 @endif
@@ -138,33 +136,57 @@
         let $targets;
         if (scope && scope.nodeType === 1 && scope.tagName === 'SELECT') {
             $targets = jQuery(scope);
+        } else if (scope && window.jQuery && scope.jquery) {
+            $targets = scope.is('select') ? scope : scope.find('select');
         } else {
             const $root = scope ? jQuery(scope) : jQuery(document);
             $targets = $root.find('select');
         }
 
         $targets.not('[data-no-select2]').each(function () {
-            const $el = jQuery(this);
-            if ($el.hasClass('select2-hidden-accessible')) return;
+            const el = this;
+            const $el = jQuery(el);
+            if (el.tagName !== 'SELECT' || $el.attr('data-no-select2') != null) return;
 
-            const parentSel = $el.data('dropdown-parent');
-            const forceSearch = $el.data('search') === true || $el.data('search') === 1;
-            const optionCount = $el.find('option').length;
-            const emptyOpt = $el.find('option[value=""]');
-            const placeholder = $el.data('placeholder') || (emptyOpt.length ? emptyOpt.first().text().trim() : undefined);
-            const allowClear = $el.data('allow-clear') === true || $el.data('allow-clear') === 1 || emptyOpt.length > 0;
+            try {
+                const $wrapParent = $el.parent();
+                if (
+                    !$wrapParent.hasClass('select2-wrap')
+                    && !$wrapParent.hasClass('select2-compact')
+                    && !$el.hasClass('select2-hidden-accessible')
+                ) {
+                    $el.wrap('<div class="select2-wrap"></div>');
+                }
 
-            $el.select2({
-                width: $el.data('width') || '100%',
-                dropdownParent: parentSel ? jQuery(parentSel) : jQuery('body'),
-                minimumResultsForSearch: forceSearch || optionCount > 6 ? 0 : Infinity,
-                placeholder: placeholder || undefined,
-                allowClear: allowClear,
-                language: {
-                    noResults: () => 'Tidak ditemukan',
-                    searching: () => 'Mencari…',
-                },
-            });
+                if ($el.hasClass('select2-hidden-accessible')) return;
+
+                const parentSel = $el.data('dropdown-parent');
+                let $dropdownParent = parentSel ? jQuery(parentSel) : $el.closest('.modal-panel, .modal-backdrop.open, dialog');
+                if (!$dropdownParent.length) $dropdownParent = jQuery(document.body);
+
+                const forceSearch = $el.data('search') === true || $el.data('search') === 1 || $el.data('search') === 'true';
+                const optionCount = $el.find('option').not('[disabled]').length;
+                const emptyOpt = $el.find('option[value=""]').first();
+                const placeholder = $el.data('placeholder')
+                    || $el.attr('placeholder')
+                    || (emptyOpt.length ? (emptyOpt.text() || '').trim() : undefined);
+                const allowClearRequested = $el.data('allow-clear') === true || $el.data('allow-clear') === 1 || $el.data('allow-clear') === 'true';
+                const allowClear = Boolean(placeholder) && (allowClearRequested || (emptyOpt.length > 0 && !$el.prop('required')));
+
+                $el.select2({
+                    width: '100%',
+                    dropdownParent: $dropdownParent,
+                    minimumResultsForSearch: forceSearch || optionCount > 5 ? 0 : Infinity,
+                    placeholder: placeholder || undefined,
+                    allowClear: allowClear,
+                    language: {
+                        noResults: () => 'Tidak ditemukan',
+                        searching: () => 'Mencari…',
+                    },
+                });
+            } catch (err) {
+                console.warn('Select2 gagal diinisialisasi', el, err);
+            }
         });
     };
 
@@ -172,7 +194,7 @@
         if (!window.jQuery || !el) return;
         const $el = jQuery(el);
         if ($el.hasClass('select2-hidden-accessible')) {
-            $el.select2('destroy');
+            try { $el.select2('destroy'); } catch (e) {}
         }
         window.initSelect2(el);
     };
@@ -188,13 +210,14 @@
     document.addEventListener('DOMContentLoaded', function () {
         window.initSelect2?.(document);
         setTimeout(function () { window.initSelect2?.(document); }, 150);
+        setTimeout(function () { window.initSelect2?.(document); }, 600);
     });
 
     (function () {
         let timer;
         const observer = new MutationObserver(function () {
             clearTimeout(timer);
-            timer = setTimeout(function () { window.initSelect2?.(document); }, 60);
+            timer = setTimeout(function () { window.initSelect2?.(document); }, 80);
         });
         document.addEventListener('DOMContentLoaded', function () {
             if (document.body) observer.observe(document.body, { childList: true, subtree: true });

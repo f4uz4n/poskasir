@@ -48,7 +48,7 @@ class SubscriptionController extends Controller
 
         $data = $request->validate([
             'plan_id' => ['required', 'exists:subscription_plans,id'],
-            'method' => ['required', 'in:transfer,qris,va,ewallet,demo'],
+            'method' => ['required', 'in:transfer,demo'],
             'payer_name' => ['nullable', 'string', 'max:255'],
             'payer_bank' => ['nullable', 'string', 'max:100'],
         ]);
@@ -57,6 +57,9 @@ class SubscriptionController extends Controller
 
         if (! $plan->is_free && (float) $plan->price > 0) {
             $recaptcha->verifyOrFail($request);
+            $data['method'] = 'transfer';
+        } else {
+            $data['method'] = 'demo';
         }
 
         $user = Auth::user()->storeOwner();

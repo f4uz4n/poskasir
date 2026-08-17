@@ -73,13 +73,8 @@
                     <input type="hidden" name="method" value="demo">
                     <button class="btn btn-secondary w-full">Pakai paket Gratis</button>
                 @else
-                    <select name="method" class="input text-sm" required>
-                        <option value="transfer">Transfer bank</option>
-                        <option value="qris">QRIS</option>
-                        <option value="va">Virtual Account</option>
-                        <option value="ewallet">E-Wallet</option>
-                        <option value="demo">Bayar demo (langsung aktif)</option>
-                    </select>
+                    <input type="hidden" name="method" value="transfer">
+                    <p class="text-xs text-slate-500">Pembayaran: Transfer bank BSI (validasi otomatis via email)</p>
                     <input name="payer_name" class="input text-sm" placeholder="Nama pengirim" value="{{ auth()->user()->name }}">
                     <x-recaptcha />
                     <button class="btn btn-primary w-full">Berlangganan</button>
@@ -109,7 +104,7 @@
                             <a href="{{ route('subscription.payment', $pay) }}" class="text-brand-700 font-medium">{{ $pay->invoice_code }}</a>
                         </td>
                         <td class="py-3">{{ $pay->subscription?->plan?->name }}</td>
-                        <td class="py-3 uppercase">{{ $pay->method }}</td>
+                        <td class="py-3">{{ $pay->method === 'transfer' ? 'Transfer bank' : ($pay->method === 'demo' ? 'Gratis' : strtoupper($pay->method)) }}</td>
                         <td class="py-3">
                             <span class="px-2 py-1 rounded-full text-xs {{ $pay->status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
                                 {{ $pay->status }}

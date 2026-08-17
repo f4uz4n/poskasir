@@ -72,6 +72,93 @@ async function registerServiceWorker() {
     return navigator.serviceWorker.register(serviceWorkerUrl());
 }
 
+let deferredInstallPrompt = null;
+
+function isPwaInstalled() {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.matchMedia('(display-mode: fullscreen)').matches
+        || window.navigator.standalone === true;
+    return standalone;
+}
+
+function isIosSafari() {
+    const ua = window.navigator.userAgent || '';
+    const iOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const webkit = /WebKit/.test(ua);
+    const notChrome = !/CriOS|FxiOS|EdgiOS/.test(ua);
+    return iOS && webkit && notChrome;
+}
+
+function updateInstallUi() {
+    const btn = document.getElementById('btn-install-app');
+    const hint = document.getElementById('install-app-hint');
+    if (!btn) return;
+
+    if (isPwaInstalled()) {
+        btn.disabled = true;
+        btn.textContent = 'Aplikasi sudah terpasang';
+        if (hint) hint.textContent = 'KasirFlow sudah berjalan sebagai aplikasi di perangkat ini.';
+        return;
+    }
+
+    if (deferredInstallPrompt) {
+        btn.disabled = false;
+        btn.textContent = 'Install aplikasi';
+        if (hint) hint.textContent = 'Pasang ke layar HP/laptop agar bisa dibuka seperti aplikasi.';
+        return;
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Install aplikasi';
+    if (hint) {
+        hint.textContent = isIosSafari()
+            ? 'Di iPhone/iPad: ketuk tombol Bagikan, lalu pilih Tambah ke Layar Utama.'
+            : 'Jika dialog tidak muncul, buka menu browser lalu pilih Install app / Tambahkan ke layar utama.';
+    }
+}
+
+async function installPwa() {
+    if (isPwaInstalled()) {
+        toast('Aplikasi sudah terpasang');
+        updateInstallUi();
+        return false;
+    }
+
+    if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        if (choice?.outcome === 'accepted') {
+            toast('Aplikasi dipasang');
+            updateInstallUi();
+            return true;
+        }
+        toast('Pemasangan dibatalkan');
+        updateInstallUi();
+        return false;
+    }
+
+    if (isIosSafari()) {
+        toast('Di Safari: Bagikan → Tambah ke Layar Utama');
+        return false;
+    }
+
+    toast('Buka menu browser, lalu pilih Install app');
+    return false;
+}
+
+window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    updateInstallUi();
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    toast('Aplikasi berhasil dipasang');
+    updateInstallUi();
+});
+
 async function enableOffline() {
     if (!window.POS_CONFIG?.routes?.offlineEnable) return;
 
@@ -122,6 +209,8 @@ window.PosApp = {
     syncAll,
     enableOffline,
     disableOffline,
+    installPwa,
+    updateInstallUi,
     OfflineStore,
 };
 
@@ -136,14 +225,44 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     window.addEventListener('offline', updateNetStatus);
 
-    document.getElementById('menu-toggle')?.addEventListener('click', () => {
-        const isDesktop = window.matchMedia('(min-width: 1024px)').matches;
-        if (isDesktop) {
+    const menuToggle = document.getElementById('menu-toggle');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+    const desktopMq = window.matchMedia('(min-width: 1024px)');
+
+    const setMobileOpen = (open) => {
+        document.documentElement.classList.toggle('sidebar-open', open);
+        menuToggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+
+    const closeMobileSidebar = () => setMobileOpen(false);
+
+    menuToggle?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (desktopMq.matches) {
             const collapsed = document.documentElement.classList.toggle('sidebar-collapsed');
             localStorage.setItem('poskasir_sidebar_collapsed', collapsed ? '1' : '0');
-        } else {
-            document.getElementById('mobile-nav')?.classList.toggle('hidden');
+            return;
         }
+        setMobileOpen(!document.documentElement.classList.contains('sidebar-open'));
+    });
+
+    sidebarBackdrop?.addEventListener('click', closeMobileSidebar);
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeMobileSidebar();
+    });
+
+    // Tutup drawer mobile setelah pilih menu
+    document.getElementById('app-sidebar')?.addEventListener('click', (e) => {
+        const link = e.target.closest('a.sidebar-link');
+        if (link && !desktopMq.matches) {
+            closeMobileSidebar();
+        }
+    });
+
+    desktopMq.addEventListener('change', (e) => {
+        if (e.matches) closeMobileSidebar();
     });
 
     // Sidebar dropdown: hanya buka grup yang berisi menu aktif
@@ -152,10 +271,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('btn-sync')?.addEventListener('click', syncAll);
+    document.getElementById('btn-install-app')?.addEventListener('click', () => installPwa());
+    updateInstallUi();
 
-    if (OfflineStore.isOfflineEnabled() || window.POS_CONFIG?.offlineEnabled) {
-        registerServiceWorker().catch(() => {});
-    }
+    registerServiceWorker().catch(() => {});
 
     initPos();
 });

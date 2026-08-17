@@ -24,7 +24,7 @@
             </div>
             <div class="rounded-xl bg-slate-50 p-3">
                 <div class="text-slate-500">Metode</div>
-                <div class="text-lg font-bold uppercase">{{ $payment->method }}</div>
+                <div class="text-lg font-bold">Transfer bank</div>
             </div>
         </div>
 
@@ -88,17 +88,6 @@
                         Memeriksa email BSI…
                     </div>
                 </div>
-            @else
-                <div class="rounded-xl border border-dashed border-brand-300 bg-brand-50/40 p-4 mb-4 text-sm">
-                    <div class="font-semibold mb-2">Instruksi pembayaran</div>
-                    @if($payment->method === 'qris')
-                        <p>Scan QRIS demo di aplikasi e-wallet Anda, lalu upload bukti.</p>
-                    @elseif($payment->method === 'va')
-                        <p>Virtual Account demo: <span class="font-mono">8808{{ substr($payment->invoice_code, -8) }}</span></p>
-                    @else
-                        <p>Selesaikan pembayaran melalui metode {{ strtoupper($payment->method) }}, lalu upload bukti.</p>
-                    @endif
-                </div>
             @endif
 
             <details class="mb-4">
@@ -110,7 +99,7 @@
                         <input name="payer_name" class="input mt-1" value="{{ old('payer_name', $payment->payer_name) }}" required>
                     </div>
                     <div>
-                        <label class="text-sm font-medium">Bank / e-wallet</label>
+                        <label class="text-sm font-medium">Bank pengirim</label>
                         <input name="payer_bank" class="input mt-1" value="{{ old('payer_bank', $payment->payer_bank) }}">
                     </div>
                     <div>
@@ -124,13 +113,6 @@
                     <button class="btn btn-secondary w-full">Simpan bukti</button>
                 </form>
             </details>
-
-            @if($payment->method !== 'transfer')
-                <form method="POST" action="{{ route('subscription.demo', $payment) }}" class="mt-3">
-                    @csrf
-                    <button class="btn btn-secondary w-full">Konfirmasi bayar demo (langsung aktif)</button>
-                </form>
-            @endif
         @else
             <div class="rounded-xl bg-emerald-50 text-emerald-800 p-4 text-sm space-y-1">
                 <p>Pembayaran sudah lunas pada {{ optional($payment->paid_at)->format('d M Y H:i') }}.</p>

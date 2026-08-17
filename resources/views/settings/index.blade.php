@@ -5,8 +5,8 @@
 @section('subheading', 'Toko, printer, offline, dan fitur berbayar')
 
 @section('content')
-<div class="grid lg:grid-cols-2 gap-4">
-    <div class="card p-5">
+<div class="settings-page grid grid-cols-1 xl:grid-cols-2 gap-4 max-w-6xl">
+    <div class="card p-4 sm:p-5 min-w-0">
         <h2 class="font-bold mb-4">Profil toko</h2>
         @if($user->isStoreOwner())
         <form method="POST" action="{{ route('settings.update') }}" class="space-y-3" enctype="multipart/form-data">
@@ -17,14 +17,14 @@
             </div>
             <div>
                 <label class="text-sm font-medium">Logo toko</label>
-                <div class="mt-1 flex items-center gap-3">
+                <div class="mt-1 flex flex-col xs:flex-row sm:flex-row items-start gap-3">
                     @if($settings->logo_url ?? null)
-                        <img id="store-logo-preview" src="{{ $settings->logo_url }}" alt="Logo toko" class="h-16 w-16 rounded-xl object-cover border border-slate-200 bg-white">
+                        <img id="store-logo-preview" src="{{ $settings->logo_url }}" alt="Logo toko" class="h-16 w-16 rounded-xl object-cover border border-slate-200 bg-white shrink-0">
                     @else
-                        <div class="h-16 w-16 rounded-xl bg-brand-600 text-white grid place-items-center font-bold text-xl">{{ strtoupper(substr($settings->store_name ?? 'K', 0, 1)) }}</div>
+                        <div class="h-16 w-16 rounded-xl bg-brand-600 text-white grid place-items-center font-bold text-xl shrink-0">{{ strtoupper(substr($settings->store_name ?? 'K', 0, 1)) }}</div>
                     @endif
-                    <div class="flex-1 space-y-2">
-                        <input type="file" name="store_logo" accept="image/png,image/jpeg,image/webp" class="input">
+                    <div class="flex-1 space-y-2 min-w-0 w-full">
+                        <input type="file" name="store_logo" accept="image/png,image/jpeg,image/webp" class="input w-full">
                         @if($settings->store_logo ?? null)
                         <label class="flex items-center gap-2 text-sm">
                             <input type="checkbox" name="remove_store_logo" value="1">
@@ -55,7 +55,7 @@
                 <textarea name="receipt_footer" class="input mt-1" rows="4" placeholder="Contoh:&#10;Terima kasih&#10;Barang yang sudah dibeli tidak dapat dikembalikan&#10;IG: @tokoanda">{{ old('receipt_footer', $settings->receipt_footer ?? '') }}</textarea>
                 <p class="text-xs text-slate-500 mt-1">Bebas diisi admin. Bisa lebih dari satu baris — teks ini muncul di bawah struk kasir.</p>
             </div>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                     <label class="text-sm font-medium">Pajak (%)</label>
                     <input name="tax_percent" type="number" step="0.01" class="input mt-1" value="{{ old('tax_percent', $settings->tax_percent ?? 0) }}">
@@ -163,9 +163,9 @@
                     <p class="text-xs text-slate-500">Scanner tidak perlu disambungkan ulang di Kasir. Pengaturan disimpan offline di browser ini.</p>
                 </div>
                 <div class="flex flex-col sm:flex-row gap-2">
-                    <button type="button" id="btn-pair-printer" class="btn btn-secondary flex-1 text-sm">Pasangkan printer</button>
-                    <button type="button" id="btn-test-print" class="btn btn-primary flex-1 text-sm">Tes cetak</button>
-                    <button type="button" id="btn-test-drawer" class="btn btn-secondary flex-1 text-sm">Tes buka laci</button>
+                    <button type="button" id="btn-pair-printer" class="btn btn-secondary flex-1 text-sm whitespace-normal">Pasangkan printer</button>
+                    <button type="button" id="btn-test-print" class="btn btn-primary flex-1 text-sm whitespace-normal">Tes cetak</button>
+                    <button type="button" id="btn-test-drawer" class="btn btn-secondary flex-1 text-sm whitespace-normal">Tes buka laci</button>
                 </div>
                 <p id="printer-setup-status" class="text-xs text-slate-500">Status: belum dipasangkan di browser ini.</p>
             </div>
@@ -182,48 +182,50 @@
         @endif
     </div>
 
-    <div class="space-y-4">
-        <div class="card p-5">
+    <div class="space-y-4 min-w-0">
+        <div class="card p-4 sm:p-5">
             <h2 class="font-bold mb-2">Install aplikasi offline (PWA)</h2>
-            <p class="text-sm text-slate-500 mb-4">Aktifkan mode offline agar data tersimpan di perangkat.</p>
-            <div class="rounded-xl border border-slate-200 p-4 mb-4">
-                <div class="flex items-center justify-between mb-2">
+            <p class="text-sm text-slate-500 mb-4">Pasang ke perangkat, lalu aktifkan mode offline agar data tersimpan di HP/laptop.</p>
+            <div class="rounded-xl border border-slate-200 p-4 mb-4 space-y-3">
+                <div class="flex items-center justify-between gap-3">
                     <span class="text-sm font-medium">Status mode offline</span>
                     <span id="offline-mode-label" class="text-sm font-semibold {{ ($settings->offline_enabled ?? false) ? 'text-emerald-600' : 'text-slate-500' }}">
                         {{ ($settings->offline_enabled ?? false) ? 'Aktif' : 'Nonaktif' }}
                     </span>
                 </div>
+                <p id="install-app-hint" class="text-xs text-slate-500">Pasang ke layar HP/laptop agar bisa dibuka seperti aplikasi.</p>
             </div>
             <div class="flex flex-col sm:flex-row gap-2">
-                <button type="button" id="btn-enable-offline" class="btn btn-primary flex-1">Aktifkan Offline</button>
+                <button type="button" id="btn-install-app" class="btn btn-primary flex-1 whitespace-normal">Install aplikasi</button>
+                <button type="button" id="btn-enable-offline" class="btn btn-secondary flex-1 whitespace-normal">Aktifkan Offline</button>
             </div>
-            <div class="mt-4 flex gap-2">
-                <button type="button" id="btn-sync-now" class="btn btn-ghost flex-1">Sinkron data</button>
-                <button type="button" id="btn-disable-offline" class="btn btn-ghost flex-1">Nonaktifkan</button>
+            <div class="mt-4 flex flex-col sm:flex-row gap-2">
+                <button type="button" id="btn-sync-now" class="btn btn-ghost flex-1 whitespace-normal">Sinkron data</button>
+                <button type="button" id="btn-disable-offline" class="btn btn-ghost flex-1 whitespace-normal">Nonaktifkan</button>
             </div>
         </div>
 
         @if($user->isStoreOwner())
-        <div class="card p-5 {{ $canRemote ? '' : 'opacity-90' }}">
+        <div class="card p-4 sm:p-5 {{ $canRemote ? '' : 'opacity-90' }}">
             <h2 class="font-bold mb-2">Pantau laporan jarak jauh @if(!$canRemote)<span class="text-xs font-normal text-amber-600">(Berbayar)</span>@endif</h2>
             <p class="text-sm text-slate-500 mb-3">Buka link khusus di HP/laptop lain untuk memantau penjualan tanpa login penuh.</p>
             @if($canRemote)
                 @if($remoteUrl)
                     <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs break-all mb-3">{{ $remoteUrl }}</div>
-                    <div class="flex flex-wrap gap-2">
-                        <a href="{{ $remoteUrl }}" target="_blank" class="btn btn-primary text-sm">Buka pantauan</a>
-                        <form method="POST" action="{{ route('remote.regenerate') }}">@csrf<button class="btn btn-ghost text-sm">Regenerate link</button></form>
-                        <form method="POST" action="{{ route('remote.disable') }}">@csrf<button class="btn btn-ghost text-sm">Nonaktifkan</button></form>
+                    <div class="flex flex-col sm:flex-row flex-wrap gap-2">
+                        <a href="{{ $remoteUrl }}" target="_blank" class="btn btn-primary text-sm whitespace-normal">Buka pantauan</a>
+                        <form method="POST" action="{{ route('remote.regenerate') }}">@csrf<button class="btn btn-ghost text-sm w-full sm:w-auto whitespace-normal">Regenerate link</button></form>
+                        <form method="POST" action="{{ route('remote.disable') }}">@csrf<button class="btn btn-ghost text-sm w-full sm:w-auto whitespace-normal">Nonaktifkan</button></form>
                     </div>
                 @else
-                    <form method="POST" action="{{ route('remote.enable') }}">@csrf<button class="btn btn-primary">Aktifkan pantauan jarak jauh</button></form>
+                    <form method="POST" action="{{ route('remote.enable') }}">@csrf<button class="btn btn-primary w-full sm:w-auto whitespace-normal">Aktifkan pantauan jarak jauh</button></form>
                 @endif
             @else
-                <a href="{{ route('subscription.index') }}" class="btn btn-secondary text-sm">Upgrade untuk membuka fitur</a>
+                <a href="{{ route('subscription.index') }}" class="btn btn-secondary text-sm whitespace-normal">Upgrade untuk membuka fitur</a>
             @endif
         </div>
 
-        <div class="card p-5 {{ $canApiSync ? '' : 'opacity-90' }}">
+        <div class="card p-4 sm:p-5 {{ $canApiSync ? '' : 'opacity-90' }}">
             <h2 class="font-bold mb-2">API Sinkron @if(!$canApiSync)<span class="text-xs font-normal text-amber-600">(Berbayar)</span>@endif</h2>
             <p class="text-sm text-slate-500 mb-3">Integrasikan aplikasi eksternal (mobile, ERP, dashboard) via REST API. Mencakup produk, penjualan, pembelian, piutang, hutang, stock opname, dan laporan.</p>
             @if($canApiSync)
@@ -234,25 +236,25 @@
                     </div>
                 @endif
                 <div class="rounded-xl bg-slate-50 border border-slate-200 p-4 mb-4 text-sm space-y-2">
-                    <div class="flex justify-between">
+                    <div class="flex flex-col sm:flex-row sm:justify-between gap-1">
                         <span class="text-slate-500">Status token</span>
                         <span class="font-semibold {{ ($settings->api_token ?? null) ? 'text-emerald-600' : 'text-slate-500' }}">
                             {{ ($settings->api_token ?? null) ? 'Aktif' : 'Belum dibuat' }}
                         </span>
                     </div>
                     @if($settings->api_token_created_at ?? null)
-                        <div class="flex justify-between">
+                        <div class="flex flex-col sm:flex-row sm:justify-between gap-1">
                             <span class="text-slate-500">Dibuat</span>
                             <span>{{ $settings->api_token_created_at->format('d M Y H:i') }}</span>
                         </div>
                     @endif
-                    <div class="text-xs text-slate-500 pt-2 border-t">
+                    <div class="text-xs text-slate-500 pt-2 border-t break-all">
                         Header: <code class="bg-white px-1 rounded">Authorization: Bearer {token}</code>
                     </div>
                 </div>
                 <details class="mb-4 text-xs">
                     <summary class="cursor-pointer font-medium text-brand-700">Daftar endpoint API</summary>
-                    <ul class="mt-2 space-y-1 text-slate-600 pl-4 list-disc">
+                    <ul class="mt-2 space-y-1 text-slate-600 pl-4 list-disc break-all">
                         <li><code>GET /api/v1/sync/pull?since=</code> — tarik semua data</li>
                         <li><code>POST /api/v1/sync/push</code> — kirim transaksi offline</li>
                         <li><code>GET /api/v1/products</code> — daftar produk</li>
@@ -267,30 +269,30 @@
                         <li><code>GET /api/v1/reports/roi?year=2026</code> — ROI bulanan per tahun</li>
                     </ul>
                 </details>
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-col sm:flex-row flex-wrap gap-2">
                     <form method="POST" action="{{ route('settings.api-token.generate') }}">
                         @csrf
-                        <button class="btn btn-primary text-sm">{{ ($settings->api_token ?? null) ? 'Regenerate token' : 'Buat token API' }}</button>
+                        <button class="btn btn-primary text-sm w-full sm:w-auto whitespace-normal">{{ ($settings->api_token ?? null) ? 'Regenerate token' : 'Buat token API' }}</button>
                     </form>
                     @if($settings->api_token ?? null)
                         <form method="POST" action="{{ route('settings.api-token.revoke') }}">
                             @csrf @method('DELETE')
-                            <button class="btn btn-cancel text-sm" onclick="return confirm('Cabut token API? Integrasi eksternal akan berhenti.')">Cabut token</button>
+                            <button class="btn btn-cancel text-sm w-full sm:w-auto whitespace-normal" onclick="return confirm('Cabut token API? Integrasi eksternal akan berhenti.')">Cabut token</button>
                         </form>
                     @endif
                 </div>
             @else
-                <a href="{{ route('subscription.index') }}" class="btn btn-secondary text-sm">Upgrade untuk API sinkron</a>
+                <a href="{{ route('subscription.index') }}" class="btn btn-secondary text-sm whitespace-normal">Upgrade untuk API sinkron</a>
             @endif
         </div>
 
-        <div class="card p-5">
+        <div class="card p-4 sm:p-5">
             <h2 class="font-bold mb-2">Backup & Restore</h2>
             <p class="text-sm text-slate-500 mb-3">Cadangkan data toko atau pulihkan dari file JSON.</p>
-            <a href="{{ route('backup.index') }}" class="btn btn-secondary">Kelola backup</a>
+            <a href="{{ route('backup.index') }}" class="btn btn-secondary whitespace-normal">Kelola backup</a>
         </div>
 
-        <div class="card p-5 border border-red-200 bg-red-50/40">
+        <div class="card p-4 sm:p-5 border border-red-200 bg-red-50/40">
             <h2 class="font-bold mb-2 text-red-700">Zona berbahaya — Format data</h2>
             <p class="text-sm text-slate-600 mb-3">
                 Kosongkan data operasional toko. <strong>Akun, kasir, langganan, dan profil toko tidak dihapus.</strong>
@@ -346,11 +348,11 @@
         </div>
         @endif
 
-        <div class="card p-5">
+        <div class="card p-4 sm:p-5">
             <h2 class="font-bold mb-2">Printer & Scanner</h2>
             <p class="text-sm text-slate-500 mb-3">Setelah dipasangkan di form kiri, kasir akan otomatis memakai printer tanpa klik Hubungkan lagi.</p>
-            <div class="flex gap-2 mt-2">
-                <button type="button" id="btn-test-print-side" class="btn btn-primary flex-1 text-sm">Tes cetak</button>
+            <div class="flex flex-col sm:flex-row gap-2 mt-2">
+                <button type="button" id="btn-test-print-side" class="btn btn-primary flex-1 text-sm whitespace-normal">Tes cetak</button>
             </div>
         </div>
     </div>
@@ -362,6 +364,8 @@
 document.getElementById('btn-enable-offline')?.addEventListener('click', () => window.PosApp?.enableOffline());
 document.getElementById('btn-disable-offline')?.addEventListener('click', () => window.PosApp?.disableOffline());
 document.getElementById('btn-sync-now')?.addEventListener('click', () => window.PosApp?.syncAll());
+document.getElementById('btn-install-app')?.addEventListener('click', () => window.PosApp?.installPwa());
+window.PosApp?.updateInstallUi?.();
 
 (function setupWipeForm() {
     const modeEl = document.getElementById('wipe-mode');
@@ -383,6 +387,9 @@ document.getElementById('btn-sync-now')?.addEventListener('click', () => window.
     }
 
     modeEl?.addEventListener('change', syncWipeUi);
+    if (window.jQuery && modeEl) {
+        jQuery(modeEl).on('change', syncWipeUi);
+    }
     syncWipeUi();
 
     form?.addEventListener('submit', (e) => {
@@ -416,8 +423,15 @@ const statusEl = document.getElementById('printer-setup-status');
 function syncUsbFields() {
     if (!usbFields || !typeSelect) return;
     usbFields.classList.toggle('hidden', typeSelect.value !== 'usb');
+    if (typeSelect.value === 'usb') {
+        usbFields.querySelectorAll('select').forEach((el) => window.reinitSelect2?.(el));
+    }
 }
-typeSelect?.addEventListener('change', syncUsbFields);
+if (window.jQuery && typeSelect) {
+    jQuery(typeSelect).on('change', syncUsbFields);
+} else {
+    typeSelect?.addEventListener('change', syncUsbFields);
+}
 syncUsbFields();
 
 function setStatus(msg, ok = false) {
@@ -607,6 +621,7 @@ document.querySelector('form')?.addEventListener('submit', () => {
                 if (p.name === current || p.name === saved) opt.selected = true;
                 select.appendChild(opt);
             });
+            window.reinitSelect2?.(select);
         });
     } catch (_) {}
 })();

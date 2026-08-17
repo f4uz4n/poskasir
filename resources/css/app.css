@@ -74,6 +74,22 @@ body {
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
+.btn.whitespace-normal {
+    white-space: normal;
+    text-align: center;
+    height: auto;
+    min-height: 2.75rem;
+}
+
+.settings-page .card {
+    overflow: hidden;
+}
+
+.settings-page .input,
+.settings-page .select2-container {
+    max-width: 100%;
+}
+
 a.btn {
     color: inherit;
 }
@@ -337,6 +353,14 @@ textarea.input {
     user-select: none;
 }
 
+.nav-toggle-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    flex: 1;
+}
+
 .nav-dropdown-toggle::-webkit-details-marker {
     display: none;
 }
@@ -528,15 +552,88 @@ textarea.input {
 }
 
 .app-sidebar {
-    width: 16rem;
-    transition: width 0.2s ease;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 55;
+    width: min(18rem, 86vw);
+    max-width: 18rem;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid rgba(226, 232, 240, 0.9);
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(10px);
+    box-shadow: 8px 0 28px rgba(15, 23, 42, 0.08);
+    transform: translateX(-105%);
+    transition: transform 0.22s ease, width 0.2s ease;
+    will-change: transform;
+}
+
+.sidebar-nav {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+.sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(15, 23, 42, 0.42);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+html.sidebar-open .app-sidebar {
+    transform: translateX(0);
+}
+
+html.sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+html.sidebar-open {
+    overflow: hidden;
+}
+
+.app-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    isolation: isolate;
+}
+
+#menu-toggle {
+    position: relative;
+    z-index: 45;
+    pointer-events: auto;
+    touch-action: manipulation;
 }
 
 .app-main {
     transition: padding-left 0.2s ease;
+    min-width: 0;
 }
 
 @media (min-width: 1024px) {
+    html.sidebar-open {
+        overflow: auto;
+    }
+
+    .sidebar-backdrop {
+        display: none !important;
+    }
+
+    .app-sidebar {
+        width: 16rem;
+        max-width: none;
+        transform: translateX(0);
+        box-shadow: none;
+    }
+
     .app-main {
         padding-left: 16rem;
     }
@@ -559,8 +656,18 @@ textarea.input {
 
     html.sidebar-collapsed .app-sidebar .nav-dropdown-toggle {
         justify-content: center;
-        padding: 0.35rem;
-        min-height: 0.5rem;
+        padding: 0.75rem;
+        min-height: 2.75rem;
+    }
+
+    html.sidebar-collapsed .app-sidebar .nav-toggle-left {
+        justify-content: center;
+        flex: 0 0 auto;
+        gap: 0;
+    }
+
+    html.sidebar-collapsed .app-sidebar .nav-dropdown-toggle .nav-icon {
+        display: block;
     }
 
     html.sidebar-collapsed .app-sidebar .nav-dropdown {
@@ -597,6 +704,24 @@ textarea.input {
         justify-content: center;
         padding-left: 0.5rem;
         padding-right: 0.5rem;
+    }
+}
+
+/* Mobile/tablet nav dropdowns more tappable */
+@media (max-width: 1023px) {
+    .sidebar-link {
+        padding: 0.85rem 1rem;
+        min-height: 2.75rem;
+    }
+
+    .nav-dropdown-toggle {
+        padding: 0.75rem 0.85rem;
+        min-height: 2.5rem;
+        font-size: 0.75rem;
+    }
+
+    .nav-dropdown-menu {
+        padding-left: 0.25rem;
     }
 }
 
@@ -773,9 +898,35 @@ textarea.input {
 }
 
 /* Select2 global — samakan dengan .input, responsif */
+.select2-wrap {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+}
+
+.flex > .select2-wrap,
+.flex-wrap > .select2-wrap,
+.grid > .select2-wrap {
+    min-width: 11rem;
+}
+
 .select2-container {
     width: 100% !important;
     max-width: 100%;
+}
+
+select.select2-hidden-accessible {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    border: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 .select2-container--default .select2-selection--single {
@@ -794,7 +945,9 @@ textarea.input {
     color: #0f172a;
     padding-left: 4px;
     padding-right: 24px;
-    white-space: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .select2-container--default .select2-selection--single .select2-selection__arrow {
@@ -813,7 +966,11 @@ textarea.input {
     border-color: #d1d5db;
     border-radius: 0.75rem;
     overflow: hidden;
-    z-index: 80;
+    z-index: 120;
+}
+
+.select2-container--open {
+    z-index: 120;
 }
 
 .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
@@ -831,13 +988,19 @@ textarea.input {
     margin-right: 1.25rem;
 }
 
+.select2-compact {
+    width: 7.5rem;
+    min-width: 7.5rem;
+}
+
 .select2-compact .select2-container--default .select2-selection--single {
     min-height: 36px;
     padding: 2px 6px;
     font-size: 0.75rem;
 }
 
-td .select2-container {
+td .select2-container,
+td .select2-wrap {
     min-width: 0;
 }
 
@@ -845,6 +1008,12 @@ td .select2-container {
     .select2-container--default .select2-selection--single {
         min-height: 42px;
         font-size: 0.9rem;
+    }
+
+    .flex > .select2-wrap,
+    .flex-wrap > .select2-wrap {
+        flex: 1 1 100%;
+        min-width: 0;
     }
 }
 

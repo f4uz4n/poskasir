@@ -19,6 +19,10 @@ $icon = fn (string $name) => match ($name) {
     'subscription' => '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>',
     'settings' => '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
     'price' => '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+    'home' => '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 10v10h14V10"/></svg>',
+    'store' => '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9 5.5 4h13L21 9"/><path d="M3 9h18v11H3z"/><path d="M9 20v-6h6v6"/></svg>',
+    'code' => '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+    'wallet' => '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="16" cy="15" r="1.2"/></svg>',
     'chevron' => '<svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
     default => '',
 };
@@ -30,8 +34,11 @@ $openIf = function (bool $active) {
 
 @if(auth()->user()->isDeveloper())
 <details class="nav-dropdown open" data-nav-group="developer" open>
-    <summary class="nav-dropdown-toggle">
-        <span class="nav-label">Developer</span>
+    <summary class="nav-dropdown-toggle" title="Developer">
+        <span class="nav-toggle-left">
+            {!! $icon('code') !!}
+            <span class="nav-label">Developer</span>
+        </span>
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
@@ -49,8 +56,11 @@ $openIf = function (bool $active) {
 @else
 
 <details class="nav-dropdown {{ $openIf(request()->routeIs('dashboard') || request()->routeIs('pos.*')) }}" data-nav-group="utama" @if(request()->routeIs('dashboard') || request()->routeIs('pos.*')) open @endif>
-    <summary class="nav-dropdown-toggle">
-        <span class="nav-label">Utama</span>
+    <summary class="nav-dropdown-toggle" title="Utama">
+        <span class="nav-toggle-left">
+            {!! $icon('home') !!}
+            <span class="nav-label">Utama</span>
+        </span>
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
@@ -64,8 +74,11 @@ $openIf = function (bool $active) {
 </details>
 
 <details class="nav-dropdown {{ $openIf(request()->routeIs(['products.*','purchases.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) }}" data-nav-group="inventori" @if(request()->routeIs(['products.*','purchases.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) open @endif>
-    <summary class="nav-dropdown-toggle">
-        <span class="nav-label">Inventori</span>
+    <summary class="nav-dropdown-toggle" title="Inventori">
+        <span class="nav-toggle-left">
+            {!! $icon('products') !!}
+            <span class="nav-label">Inventori</span>
+        </span>
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
@@ -91,8 +104,11 @@ $openIf = function (bool $active) {
 </details>
 
 <details class="nav-dropdown {{ $openIf(request()->routeIs(['transactions.*','receivables.*','payables.*'])) }}" data-nav-group="keuangan" @if(request()->routeIs(['transactions.*','receivables.*','payables.*'])) open @endif>
-    <summary class="nav-dropdown-toggle">
-        <span class="nav-label">Keuangan</span>
+    <summary class="nav-dropdown-toggle" title="Keuangan">
+        <span class="nav-toggle-left">
+            {!! $icon('wallet') !!}
+            <span class="nav-label">Keuangan</span>
+        </span>
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
@@ -109,8 +125,11 @@ $openIf = function (bool $active) {
 </details>
 
 <details class="nav-dropdown {{ $openIf(request()->routeIs('reports.index') || request()->routeIs('reports.profit-loss')) }}" data-nav-group="laporan" @if(request()->routeIs('reports.index') || request()->routeIs('reports.profit-loss')) open @endif>
-    <summary class="nav-dropdown-toggle">
-        <span class="nav-label">Laporan</span>
+    <summary class="nav-dropdown-toggle" title="Laporan">
+        <span class="nav-toggle-left">
+            {!! $icon('reports') !!}
+            <span class="nav-label">Laporan</span>
+        </span>
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
@@ -124,8 +143,11 @@ $openIf = function (bool $active) {
 </details>
 
 <details class="nav-dropdown {{ $openIf(request()->routeIs(['kasir.*','backup.*','subscription.*','settings.*'])) }}" data-nav-group="toko" @if(request()->routeIs(['kasir.*','backup.*','subscription.*','settings.*'])) open @endif>
-    <summary class="nav-dropdown-toggle">
-        <span class="nav-label">Toko</span>
+    <summary class="nav-dropdown-toggle" title="Toko">
+        <span class="nav-toggle-left">
+            {!! $icon('store') !!}
+            <span class="nav-label">Toko</span>
+        </span>
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
