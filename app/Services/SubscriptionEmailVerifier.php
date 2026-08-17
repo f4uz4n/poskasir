@@ -45,7 +45,9 @@ class SubscriptionEmailVerifier
 
         $connection = $this->connect();
         if (! $connection) {
-            $result['errors'][] = 'Gagal konek ke mailbox: '.(imap_last_error() ?: 'unknown');
+            $last = imap_last_error() ?: 'unknown';
+            $hint = $this->authHint($last);
+            $result['errors'][] = 'Gagal konek ke mailbox: '.$last.$hint;
 
             return $result;
         }
@@ -218,9 +220,8 @@ class SubscriptionEmailVerifier
     protected function connect()
     {
         $host = config('subscription.email.imap_host');
-        $port = config('subscription.email.imap_port');
-        $user = config('subscription.email.username');
-        // App Password Gmail: spasi boleh dihapus
+        $port = (int) config('subscription.email.imap_port');
+        $user = trim((string) config('subscription.email.username'));
         $pass = preg_replace('/\s+/', '', (string) config('subscription.email.password'));
 
         @ini_set('default_socket_timeout', '20');
@@ -231,11 +232,44 @@ class SubscriptionEmailVerifier
             imap_timeout(IMAP_CLOSETIMEOUT, 10);
         }
 
-        $mailbox = sprintf('{%s:%d/imap/ssl/novalidate-cert}INBOX', $host, $port);
+        $mailboxes = [
+            sprintf('{%s:%d/imap/ssl/novalidate-cert}INBOX', $host, $port),
+            sprintf('{%s:%d/ssl/novalidate-cert}INBOX', $host, $port),
+        ];
 
-        return @imap_open($mailbox, $user, $pass, OP_READONLY, 1, [
-            'DISABLE_AUTHENTICATOR' => 'GSSAPI',
-        ]);
+        $options = [
+            ['DISABLE_AUTHENTICATOR' => 'GSSAPI'],
+            ['DISABLE_AUTHENTICATOR' => 'NTLM'],
+            null,
+        ];
+
+        foreach ($mailboxes as $mailbox) {
+            foreach ($options as $params) {
+                imap_errors();
+                imap_alerts();
+                $conn = $params === null
+                    ? @imap_open($mailbox, $user, $pass, OP_READONLY, 1)
+                    : @imap_open($mailbox, $user, $pass, OP_READONLY, 1, $params);
+
+                if ($conn) {
+                    return $conn;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    protected function authHint(string $lastError): string
+    {
+        $error = strtolower($lastError);
+        if (! str_contains($error, 'authenticat') && ! str_contains($error, 'login')) {
+            return '';
+        }
+
+        $len = strlen((string) config('subscription.email.password'));
+
+        return ' | App Password Gmail harus 16 huruf. Saat ini terdeteksi '.$len.' karakter setelah spasi dihapus. Di .env production wajib: SUBSCRIPTION_IMAP_PASSWORD="xxxx xxxx xxxx xxxx" lalu jalankan php artisan config:clear';
     }
 
     /** @return array<int,int> */

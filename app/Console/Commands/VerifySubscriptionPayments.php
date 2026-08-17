@@ -16,10 +16,14 @@ class VerifySubscriptionPayments extends Command
         $this->info('Memeriksa email notifikasi BSI...');
 
         if ($this->option('debug')) {
+            $passLen = strlen((string) config('subscription.email.password'));
             $this->line('IMAP user: '.(config('subscription.email.username') ?: '(kosong)'));
-            $this->line('IMAP pass: '.(filled(config('subscription.email.password')) ? 'terisi ('.strlen((string) config('subscription.email.password')).' karakter)' : '(kosong)'));
+            $this->line('IMAP pass: '.(filled(config('subscription.email.password')) ? 'terisi ('.$passLen.' karakter, harus 16)' : '(kosong)'));
             $this->line('Bank account: '.(config('subscription.bank.account') ?: '(kosong)'));
             $this->line('PHP imap: '.(extension_loaded('imap') ? 'aktif' : 'TIDAK AKTIF'));
+            if ($passLen !== 16) {
+                $this->warn('App Password Gmail harus 16 karakter. Di .env pakai tanda kutip, contoh: SUBSCRIPTION_IMAP_PASSWORD="xxxx xxxx xxxx xxxx"');
+            }
         }
 
         $result = $verifier->verify();

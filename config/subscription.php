@@ -10,8 +10,8 @@ return [
     'email' => [
         'imap_host' => env('SUBSCRIPTION_IMAP_HOST', 'imap.gmail.com'),
         'imap_port' => (int) env('SUBSCRIPTION_IMAP_PORT', 993),
-        'username' => env('SUBSCRIPTION_IMAP_USERNAME', 'amzhadigitalnusantara@gmail.com'),
-        'password' => trim((string) env('SUBSCRIPTION_IMAP_PASSWORD', '')),
+        'username' => trim((string) env('SUBSCRIPTION_IMAP_USERNAME', 'amzhadigitalnusantara@gmail.com')),
+        'password' => preg_replace('/\s+/', '', trim((string) env('SUBSCRIPTION_IMAP_PASSWORD', ''), " \t\"'")),
         'from_address' => env('SUBSCRIPTION_EMAIL_FROM', 'BSICenter@bankbsi.co.id'),
         'subject' => env('SUBSCRIPTION_EMAIL_SUBJECT', 'NotifikasiKredit'),
         'lookback_days' => (int) env('SUBSCRIPTION_EMAIL_LOOKBACK_DAYS', 7),
