@@ -19,13 +19,52 @@
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @stack('head')
+    <style id="app-shell-critical">
+        /* Cadangan layout: tetap rapi meski public/build belum ter-upload */
+        #app-sidebar.app-sidebar {
+            position: fixed;
+            top: 0;
+            right: auto;
+            bottom: 0;
+            left: 0;
+            z-index: 55;
+            width: 16rem;
+            max-width: 18rem;
+            height: 100dvh;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(-105%);
+        }
+        html.sidebar-open #app-sidebar.app-sidebar {
+            transform: translateX(0);
+        }
+        #app-main.app-main {
+            min-width: 0;
+        }
+        @media (min-width: 1024px) {
+            #app-sidebar.app-sidebar {
+                transform: none;
+                width: 16rem;
+            }
+            #app-main.app-main {
+                padding-left: 16rem;
+            }
+            html.sidebar-collapsed #app-sidebar.app-sidebar {
+                width: 5rem;
+            }
+            html.sidebar-collapsed #app-main.app-main {
+                padding-left: 5rem;
+            }
+        }
+    </style>
 </head>
 <body class="bg-app antialiased">
     @auth
     <div id="app-shell" class="min-h-screen">
         <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
-        <aside id="app-sidebar" class="app-sidebar flex flex-col" aria-label="Menu navigasi">
+        <aside id="app-sidebar" class="app-sidebar flex flex-col fixed inset-y-0 left-0 z-50 w-64" aria-label="Menu navigasi">
             <div class="sidebar-brand px-4 py-5 flex items-center gap-3 min-h-[76px] shrink-0">
                 @php $storeLogo = auth()->user()?->storeOwner()?->storeSetting?->logo_url; @endphp
                 @if($storeLogo)
@@ -63,7 +102,7 @@
             </div>
         </aside>
 
-        <div id="app-main" class="app-main min-h-screen">
+        <div id="app-main" class="app-main min-h-screen lg:pl-64">
             <header class="app-header sticky top-0 z-40 border-b border-slate-200/70 bg-white/90 backdrop-blur">
                 <div class="px-3 sm:px-6 py-3 flex items-center justify-between gap-2 sm:gap-3">
                     <div class="flex items-center gap-2 sm:gap-3 min-w-0">
