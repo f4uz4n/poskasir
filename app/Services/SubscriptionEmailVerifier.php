@@ -43,6 +43,8 @@ class SubscriptionEmailVerifier
 
         $this->payments->expireOldPendingPayments();
 
+        @set_time_limit(90);
+
         $connection = $this->connect();
         if (! $connection) {
             $last = imap_last_error() ?: 'unknown';
@@ -55,6 +57,7 @@ class SubscriptionEmailVerifier
         try {
             $messageNumbers = $this->searchMessages($connection);
             rsort($messageNumbers);
+            $messageNumbers = array_slice($messageNumbers, 0, 40);
 
             foreach ($messageNumbers as $msgNum) {
                 $uid = imap_uid($connection, $msgNum);
@@ -301,12 +304,12 @@ class SubscriptionEmailVerifier
     {
         $structure = imap_fetchstructure($connection, $msgNum);
         if (! $structure) {
-            return imap_body($connection, $msgNum) ?: '';
+            return imap_body($connection, $msgNum, FT_PEEK) ?: '';
         }
 
         $parts = $this->collectTextParts($connection, $msgNum, $structure);
 
-        return implode("\n", array_filter($parts)) ?: (imap_body($connection, $msgNum) ?: '');
+        return implode("\n", array_filter($parts)) ?: (imap_body($connection, $msgNum, FT_PEEK) ?: '');
     }
 
     /** @return array<int,string> */
@@ -327,7 +330,7 @@ class SubscriptionEmailVerifier
         $subtype = strtolower($structure->subtype ?? '');
 
         if ($type === 0 && in_array($subtype, ['plain', 'html'], true)) {
-            $body = imap_fetchbody($connection, $msgNum, $prefix ?: '1');
+            $body = imap_fetchbody($connection, $msgNum, $prefix ?: '1', FT_PEEK);
             if (isset($structure->encoding)) {
                 $body = $this->decodeBody($body, $structure->encoding);
             }

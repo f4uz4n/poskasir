@@ -90,8 +90,21 @@
                 </div>
             @endif
 
-            <details class="mb-4">
+            <details class="mb-4" @if($payment->proof_image) open @endif>
                 <summary class="text-sm font-medium cursor-pointer text-slate-600">Upload bukti transfer (opsional)</summary>
+                @if($payment->proof_image && $payment->status === 'pending')
+                    <div class="mt-3 mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        Bukti transfer sudah diupload. Menunggu verifikasi developer.
+                        @if($payment->updated_at)
+                            <span class="text-xs block mt-1 text-amber-700">Diupload {{ $payment->updated_at->diffForHumans() }}</span>
+                        @endif
+                    </div>
+                @endif
+                @if($payment->status === 'failed' && $payment->admin_notes)
+                    <div class="mt-3 mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                        Pembayaran ditolak: {{ $payment->admin_notes }}
+                    </div>
+                @endif
                 <form method="POST" action="{{ route('subscription.proof', $payment) }}" enctype="multipart/form-data" class="space-y-3 mt-3">
                     @csrf
                     <div>
@@ -183,7 +196,7 @@
                 msgEl.textContent = data.message;
             }
         } catch (e) {
-            if (msgEl) msgEl.textContent = 'Gagal memeriksa email. Coba lagi.';
+            if (msgEl) msgEl.textContent = 'Gagal memeriksa email (timeout/koneksi IMAP). Tunggu 1 menit, lalu klik Cek sekarang sekali saja.';
         } finally {
             showSpinner(false);
         }
@@ -198,8 +211,6 @@
         const done = await pollStatus();
         if (done) clearInterval(interval);
     }, 15000);
-
-    setTimeout(triggerVerify, 2000);
 })();
 </script>
 @endpush

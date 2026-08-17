@@ -63,6 +63,7 @@ class DashboardController extends Controller
             'free' => 0,
             'none' => 0,
             'pending_payments' => Payment::where('status', 'pending')->count(),
+            'awaiting_proof' => Payment::awaitingManualReview()->count(),
             'revenue_paid' => Payment::where('status', 'paid')->sum('amount'),
         ];
 

@@ -7,6 +7,7 @@ use App\Http\Controllers\BackupController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Developer\DashboardController as DeveloperDashboardController;
+use App\Http\Controllers\Developer\PaymentController as DeveloperPaymentController;
 use App\Http\Controllers\Developer\PlanController as DeveloperPlanController;
 use App\Http\Controllers\Developer\SettingController as DeveloperSettingController;
 use App\Http\Controllers\ExpiryMonitorController;
@@ -58,6 +59,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/plans', [DeveloperPlanController::class, 'index'])->name('plans.index');
         Route::post('/plans', [DeveloperPlanController::class, 'store'])->name('plans.store');
         Route::put('/plans/{plan}', [DeveloperPlanController::class, 'update'])->name('plans.update');
+        Route::get('/payments', [DeveloperPaymentController::class, 'index'])->name('payments.index');
+        Route::post('/payments/{payment}/approve', [DeveloperPaymentController::class, 'approve'])->name('payments.approve');
+        Route::post('/payments/{payment}/reject', [DeveloperPaymentController::class, 'reject'])->name('payments.reject');
         Route::get('/settings', [DeveloperSettingController::class, 'index'])->name('settings.index');
         Route::put('/settings', [DeveloperSettingController::class, 'update'])->name('settings.update');
     });

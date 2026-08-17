@@ -45,6 +45,13 @@ $openIf = function (bool $active) {
         <a href="{{ route('developer.dashboard') }}" class="sidebar-link {{ request()->routeIs('developer.dashboard') ? 'active' : '' }}" title="Monitoring Akun">
             {!! $icon('dashboard') !!}<span class="nav-label">Monitoring Akun</span>
         </a>
+        <a href="{{ route('developer.payments.index') }}" class="sidebar-link {{ request()->routeIs('developer.payments.*') ? 'active' : '' }}" title="Verifikasi Pembayaran">
+            {!! $icon('wallet') !!}<span class="nav-label">Verifikasi Pembayaran</span>
+            @php $awaitingProof = \App\Models\Payment::awaitingManualReview()->count(); @endphp
+            @if($awaitingProof > 0)
+                <span class="ml-auto nav-label px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold">{{ $awaitingProof }}</span>
+            @endif
+        </a>
         <a href="{{ route('developer.plans.index') }}" class="sidebar-link {{ request()->routeIs('developer.plans.*') ? 'active' : '' }}" title="Harga Langganan">
             {!! $icon('price') !!}<span class="nav-label">Harga Langganan</span>
         </a>

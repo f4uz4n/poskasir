@@ -24,6 +24,9 @@ class Payment extends Model
         'email_verified_at',
         'expires_at',
         'notes',
+        'admin_notes',
+        'manual_verified_by',
+        'manual_verified_at',
     ];
 
     protected function casts(): array
@@ -34,7 +37,30 @@ class Payment extends Model
             'paid_at' => 'datetime',
             'email_verified_at' => 'datetime',
             'expires_at' => 'datetime',
+            'manual_verified_at' => 'datetime',
         ];
+    }
+
+    public function scopeAwaitingManualReview($query)
+    {
+        return $query
+            ->where('status', 'pending')
+            ->where('method', 'transfer')
+            ->whereNotNull('proof_image');
+    }
+
+    public function proofUrl(): ?string
+    {
+        if (! $this->proof_image) {
+            return null;
+        }
+
+        return asset('storage/'.$this->proof_image);
+    }
+
+    public function manualVerifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'manual_verified_by');
     }
 
     public function isPendingTransfer(): bool

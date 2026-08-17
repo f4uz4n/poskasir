@@ -36,6 +36,52 @@ class SubscriptionPaymentService
         return round($planPrice + (int) $unitCode, 2);
     }
 
+    public function approveManual(Payment $payment, \App\Models\User $reviewer, ?string $note = null): void
+    {
+        if ($payment->status !== 'pending') {
+            throw new \InvalidArgumentException('Pembayaran tidak dalam status menunggu.');
+        }
+
+        DB::transaction(function () use ($payment, $reviewer, $note) {
+            $payment->update([
+                'bank_transaction_ref' => $payment->bank_transaction_ref ?: ('MANUAL-'.$reviewer->id.'-'.now()->format('YmdHis')),
+                'manual_verified_by' => $reviewer->id,
+                'manual_verified_at' => now(),
+                'admin_notes' => $note,
+            ]);
+
+            $this->activate(
+                $payment->subscription,
+                $payment->fresh(),
+                $payment->subscription->plan
+            );
+        });
+
+        Log::info('Subscription payment approved manually by developer', [
+            'payment_id' => $payment->id,
+            'reviewer_id' => $reviewer->id,
+        ]);
+    }
+
+    public function rejectManual(Payment $payment, \App\Models\User $reviewer, string $reason): void
+    {
+        if ($payment->status !== 'pending') {
+            throw new \InvalidArgumentException('Pembayaran tidak dalam status menunggu.');
+        }
+
+        $payment->update([
+            'status' => 'failed',
+            'manual_verified_by' => $reviewer->id,
+            'manual_verified_at' => now(),
+            'admin_notes' => $reason,
+        ]);
+
+        Log::info('Subscription payment rejected manually by developer', [
+            'payment_id' => $payment->id,
+            'reviewer_id' => $reviewer->id,
+        ]);
+    }
+
     public function activate(Subscription $subscription, Payment $payment, SubscriptionPlan $plan): void
     {
         DB::transaction(function () use ($subscription, $payment, $plan) {

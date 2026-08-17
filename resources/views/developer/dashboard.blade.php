@@ -29,6 +29,15 @@
     </div>
 </div>
 
+@if(($summary['awaiting_proof'] ?? 0) > 0)
+<div class="card p-4 mb-4 border border-amber-200 bg-amber-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div class="text-sm text-amber-900">
+        <strong>{{ $summary['awaiting_proof'] }}</strong> bukti transfer menunggu verifikasi manual.
+    </div>
+    <a href="{{ route('developer.payments.index', ['filter' => 'awaiting']) }}" class="btn btn-primary text-sm whitespace-nowrap">Review pembayaran</a>
+</div>
+@endif
+
 <div class="card p-4 sm:p-5 mb-4">
     <form method="GET" class="grid sm:grid-cols-3 gap-3">
         <input type="text" name="q" value="{{ $q }}" class="input" placeholder="Cari toko / email / nama">

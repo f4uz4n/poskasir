@@ -123,8 +123,16 @@ class SubscriptionController extends Controller
     public function verifyPayment(Payment $payment)
     {
         abort_unless($payment->user_id === Auth::id(), 403);
+        @set_time_limit(90);
 
-        $result = $this->emailVerifier->verifySingle($payment);
+        try {
+            $result = $this->emailVerifier->verifySingle($payment);
+        } catch (\Throwable $e) {
+            $result = [
+                'verified' => false,
+                'message' => 'Gagal memeriksa email: '.$e->getMessage(),
+            ];
+        }
 
         if (request()->expectsJson()) {
             return response()->json($result);
@@ -177,7 +185,7 @@ class SubscriptionController extends Controller
         }
 
         return redirect()->route('subscription.payment', $payment)
-            ->with('success', 'Bukti transfer disimpan. Sistem akan cek email BSI secara otomatis.');
+            ->with('success', 'Bukti transfer disimpan. Menunggu verifikasi developer (atau validasi otomatis email BSI).');
     }
 
     public function confirmDemo(Payment $payment)
