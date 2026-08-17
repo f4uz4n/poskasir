@@ -754,6 +754,10 @@ html.sidebar-open {
     max-width: 42rem;
 }
 
+.modal-panel.max-w-3xl {
+    max-width: 48rem;
+}
+
 .modal-panel.max-w-md {
     max-width: 28rem;
 }
