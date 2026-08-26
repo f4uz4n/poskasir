@@ -147,38 +147,61 @@ export const OfflineStore = {
     },
 
     /**
-     * Gabungkan pengaturan server (sumber kebenaran setelah Simpan)
-     * dengan token pairing Bluetooth lokal (hanya ada di browser).
+     * Gabungkan pengaturan server dengan pengaturan printer di perangkat ini.
+     * Koneksi printer (USB/BT) mengutamakan localStorage agar Kasir tidak minta pairing ulang.
      */
     mergeSettings(serverSettings = {}, localDevice = null) {
         const local = localDevice || readLocalDeviceSettings() || {};
         const server = serverSettings || {};
         const hasLocal = local && Object.keys(local).length > 0;
+        const serverExtra = (server.extra && typeof server.extra === 'object') ? server.extra : {};
+        const localExtra = (local.extra && typeof local.extra === 'object') ? local.extra : {};
 
         if (!hasLocal) {
+            const type = server.printer_type || null;
             return {
                 ...server,
-                scanner_enabled: server.scanner_enabled ?? server.extra?.scanner_enabled ?? true,
+                scanner_enabled: server.scanner_enabled ?? serverExtra.scanner_enabled ?? true,
                 bt_paired: false,
                 bt_device_id: null,
                 bt_device_name: null,
-                printer_setup_done: Boolean(server.printer_type && server.printer_type !== 'none'),
+                printer_setup_done: Boolean(type && type !== 'none'),
+                extra: { ...serverExtra },
             };
         }
 
-        const printerType = server.printer_type || local.printer_type || null;
+        // Local menang untuk tipe/koneksi printer (setelah Deteksi di browser ini)
+        const printerType = local.printer_type || server.printer_type || null;
+        const printerName = local.printer_name
+            || server.printer_name
+            || localExtra.windows_printer
+            || serverExtra.windows_printer
+            || '';
+        const extra = {
+            ...serverExtra,
+            ...localExtra,
+            windows_printer: localExtra.windows_printer
+                || serverExtra.windows_printer
+                || (printerType === 'usb' && printerName && !/^COM\d+$/i.test(printerName) ? printerName : null)
+                || null,
+            com_port: localExtra.com_port
+                || serverExtra.com_port
+                || (printerType === 'usb' && printerName && /^COM\d+$/i.test(printerName) ? String(printerName).toUpperCase() : null)
+                || null,
+            printer_usb_mode: localExtra.printer_usb_mode || serverExtra.printer_usb_mode || 'windows',
+            printer_setup_done: true,
+        };
+
         const setupDone = Boolean(
             local.printer_setup_done
-            || server.extra?.printer_setup_done
-            || local.extra?.printer_setup_done
-            || (printerType && printerType !== 'none' && (server.printer_name || server.extra?.windows_printer || local.bt_paired || local.bt_device_id))
-            || (printerType === 'usb' || printerType === 'bluetooth')
+            || extra.printer_setup_done
+            || (printerType && printerType !== 'none')
         );
 
         return {
             ...server,
             printer_type: printerType,
-            printer_name: server.printer_name || local.printer_name || '',
+            printer_name: printerName,
             paper_width: server.paper_width ?? local.paper_width ?? 58,
             receipt_header: server.receipt_header ?? local.receipt_header ?? '',
             receipt_footer: server.receipt_footer ?? local.receipt_footer ?? '',
@@ -188,19 +211,15 @@ export const OfflineStore = {
             logo_url: server.logo_url ?? local.logo_url ?? null,
             tax_percent: server.tax_percent ?? local.tax_percent ?? 0,
             scanner_enabled: local.scanner_enabled
-                ?? local.extra?.scanner_enabled
+                ?? localExtra.scanner_enabled
                 ?? server.scanner_enabled
-                ?? server.extra?.scanner_enabled
+                ?? serverExtra.scanner_enabled
                 ?? true,
             bt_paired: Boolean(local.bt_paired || local.bt_device_id),
             bt_device_id: local.bt_device_id || null,
-            bt_device_name: local.bt_device_name || local.printer_name || null,
+            bt_device_name: local.bt_device_name || null,
             printer_setup_done: setupDone,
-            extra: {
-                ...(local.extra || {}),
-                ...(server.extra || {}),
-                printer_setup_done: setupDone || Boolean(server.extra?.printer_setup_done || local.extra?.printer_setup_done),
-            },
+            extra,
         };
     },
 

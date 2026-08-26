@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Mike42\Escpos\PrintConnectors\FilePrintConnector;
 use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -49,16 +48,43 @@ class WindowsPrinterService
     /** @return array<int,string> */
     public function listComPorts(): array
     {
-        $script = 'Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "COM\d+" } | Select-Object -ExpandProperty Name';
-        $output = $this->powershell($script);
         $ports = [];
-        foreach (preg_split('/\r\n|\n/', $output) ?: [] as $line) {
+
+        $script = '[System.IO.Ports.SerialPort]::GetPortNames() | ForEach-Object { $_.ToUpper() }';
+        foreach (preg_split('/\r\n|\n/', $this->powershell($script)) ?: [] as $line) {
+            $line = strtoupper(trim($line));
+            if (preg_match('/^COM\d+$/', $line)) {
+                $ports[] = $line;
+            }
+        }
+
+        $script2 = 'Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "COM\\d+" } | Select-Object -ExpandProperty Name';
+        foreach (preg_split('/\r\n|\n/', $this->powershell($script2)) ?: [] as $line) {
             if (preg_match('/(COM\d+)/i', $line, $m)) {
                 $ports[] = strtoupper($m[1]);
             }
         }
 
+        sort($ports, SORT_NATURAL);
+
         return array_values(array_unique($ports));
+    }
+
+    /**
+     * @return array<int,array{name:string,port:string,label:string}>
+     */
+    public function listComPortOptions(): array
+    {
+        $options = [];
+        foreach ($this->listComPorts() as $port) {
+            $options[] = [
+                'name' => $port,
+                'port' => $port,
+                'label' => $port.' (USB/Serial)',
+            ];
+        }
+
+        return $options;
     }
 
     public function isVirtualPrinter(array $printer): bool
@@ -66,7 +92,7 @@ class WindowsPrinterService
         $blob = strtolower(trim(($printer['name'] ?? '').' '.($printer['driver'] ?? '').' '.($printer['port'] ?? '')));
 
         return (bool) preg_match(
-            '/onenote|one note|microsoft print to pdf|microsoft XPS|fax|send to|adobe pdf|pdfcreator|pdf24|cutepdf|bullzip|doPDF|foxit pdf|nitro pdf|virtual|redirect|redirected|ts\d+|shr\d+|nul:|file:|portprompt|wpd|document writer/i',
+            '/onenote|one note|microsoft print to pdf|microsoft xps|fax|send to|adobe pdf|pdfcreator|pdf24|cutepdf|bullzip|dopdf|foxit pdf|nitro pdf|virtual|redirect|redirected|ts\d+|shr\d+|nul:|file:|portprompt|wpd|document writer/i',
             $blob
         );
     }
@@ -112,25 +138,65 @@ class WindowsPrinterService
             }
         }
 
-        // Jangan pernah fallback ke OneNote/PDF
         return null;
     }
 
     public function printRaw(string $bytes, ?string $printerName = null, ?string $comPort = null, int $baud = 9600): array
     {
         $errors = [];
-        $target = $this->guessRppPrinter($printerName);
+        $explicit = $printerName ? trim($printerName) : '';
+        $com = $comPort ? strtoupper(trim($comPort)) : null;
 
-        if ($comPort) {
+        // Nama "COMx" yang tersimpan sebagai printer_name
+        if ($explicit !== '' && preg_match('/^COM\d+$/i', $explicit)) {
+            $com = strtoupper($explicit);
+            $explicit = '';
+        }
+
+        // 1) Utamakan Windows spooler (Generic/Text) jika ada nama printer nyata
+        if ($explicit !== '' && ! $this->isVirtualPrinter(['name' => $explicit])) {
             try {
-                $this->writeCom($comPort, $bytes, $baud);
+                $this->writeWinspool($explicit, $bytes);
 
-                return ['ok' => true, 'via' => 'com', 'target' => strtoupper($comPort)];
+                return ['ok' => true, 'via' => 'winspool', 'target' => $explicit];
             } catch (Throwable $e) {
-                $errors[] = $e->getMessage();
+                $errors[] = 'Winspool '.$explicit.': '.$e->getMessage();
+            }
+
+            try {
+                $this->writeWindowsConnector($explicit, $bytes);
+
+                return ['ok' => true, 'via' => 'windows-connector', 'target' => $explicit];
+            } catch (Throwable $e) {
+                $errors[] = 'WindowsPrintConnector '.$explicit.': '.$e->getMessage();
             }
         }
 
+        // 2) Port COM (banyak RPP/Hakpost tampil sebagai USB-Serial)
+        if ($com) {
+            try {
+                $this->writeCom($com, $bytes, $baud);
+
+                return ['ok' => true, 'via' => 'com', 'target' => $com];
+            } catch (Throwable $e) {
+                $errors[] = $com.': '.$e->getMessage();
+                // Coba baud alternatif umum thermal
+                foreach ([115200, 57600, 38400, 19200] as $altBaud) {
+                    if ($altBaud === $baud) {
+                        continue;
+                    }
+                    try {
+                        $this->writeCom($com, $bytes, $altBaud);
+
+                        return ['ok' => true, 'via' => 'com-baud-'.$altBaud, 'target' => $com];
+                    } catch (Throwable $e2) {
+                        $errors[] = $com.'@'.$altBaud.': '.$e2->getMessage();
+                    }
+                }
+            }
+        }
+
+        $target = $this->guessRppPrinter($explicit !== '' ? $explicit : null);
         if ($target) {
             try {
                 $this->writeWinspool($target['name'], $bytes);
@@ -148,18 +214,32 @@ class WindowsPrinterService
                 $errors[] = 'WindowsPrintConnector: '.$e->getMessage();
             }
 
-            if ($target['port'] && preg_match('/^(USB\d+|COM\d+)/i', $target['port'], $m)) {
+            if (! empty($target['port']) && preg_match('/^(USB\d+|COM\d+)/i', (string) $target['port'], $m)) {
                 try {
                     $this->writePort($m[1], $bytes, $baud);
 
-                    return ['ok' => true, 'via' => 'port', 'target' => $m[1]];
+                    return ['ok' => true, 'via' => 'port', 'target' => strtoupper($m[1])];
                 } catch (Throwable $e) {
                     $errors[] = 'Port '.$m[1].': '.$e->getMessage();
                 }
             }
         }
 
-        foreach (range(1, 8) as $n) {
+        // Hanya coba COM tersimpan / suggested — jangan scan semua COM (bisa hang)
+        if (! $com) {
+            $available = $this->listComPorts();
+            if (count($available) === 1) {
+                try {
+                    $this->writeCom($available[0], $bytes, $baud);
+
+                    return ['ok' => true, 'via' => 'com-auto', 'target' => $available[0]];
+                } catch (Throwable $e) {
+                    $errors[] = $available[0].': '.$e->getMessage();
+                }
+            }
+        }
+
+        foreach (range(1, 4) as $n) {
             $port = sprintf('USB%03d', $n);
             try {
                 $this->writePort($port, $bytes, $baud);
@@ -170,20 +250,13 @@ class WindowsPrinterService
             }
         }
 
-        foreach ($this->listComPorts() as $port) {
-            try {
-                $this->writeCom($port, $bytes, $baud);
-
-                return ['ok' => true, 'via' => 'com-auto', 'target' => $port];
-            } catch (Throwable $e) {
-                $errors[] = $port.': '.$e->getMessage();
-            }
+        $hint = 'Gagal cetak USB. Pasang printer, di Windows instal sebagai Generic/Text Only (Devices & Printers), '
+            .'lalu di Pengaturan pilih printer itu ATAU port COM, Simpan, Tes cetak. ';
+        if (stripos(implode(' ', $errors), 'access') !== false || stripos(implode(' ', $errors), 'denied') !== false) {
+            $hint .= 'Port COM sedang dipakai driver lain — tutup aplikasi lain yang memakai printer, atau pakai nama printer Windows (bukan COM). ';
         }
 
-        throw new \RuntimeException(
-            'Gagal cetak USB RPP02N. Pasang printer di Windows (Devices & Printers), pilih namanya di Pengaturan, lalu tes lagi. '
-            .implode(' | ', array_slice($errors, 0, 4))
-        );
+        throw new \RuntimeException($hint.implode(' | ', array_slice($errors, 0, 3)));
     }
 
     protected function writeWinspool(string $printerName, string $bytes): void
@@ -209,7 +282,7 @@ class WindowsPrinterService
             '-FilePath',
             $bin,
         ]);
-        $process->setTimeout(20);
+        $process->setTimeout(15);
         $process->run();
         @unlink($bin);
 
@@ -233,17 +306,7 @@ class WindowsPrinterService
             return;
         }
 
-        $path = '\\\\.\\'.$port;
-        $fp = @fopen($path, 'wb');
-        if (! $fp) {
-            throw new \RuntimeException('Tidak bisa membuka '.$port);
-        }
-        $written = fwrite($fp, $bytes);
-        fflush($fp);
-        fclose($fp);
-        if ($written === false || $written < 1) {
-            throw new \RuntimeException('Tidak ada data terkirim ke '.$port);
-        }
+        $this->writeViaPowershellPort($port, $bytes, $baud);
     }
 
     protected function writeCom(string $port, string $bytes, int $baud): void
@@ -253,13 +316,42 @@ class WindowsPrinterService
             throw new \RuntimeException('Port COM tidak valid');
         }
 
-        $mode = new Process(['cmd', '/c', sprintf('mode %s: BAUD=%d PARITY=N DATA=8 STOP=1 XON=OFF', $port, $baud)]);
-        $mode->setTimeout(8);
-        $mode->run();
+        // SerialPort .NET lebih andal + timeout (fopen sering hang di XAMPP)
+        $this->writeViaPowershellPort($port, $bytes, $baud);
+    }
 
-        $connector = new FilePrintConnector('\\\\.\\'.$port);
-        $connector->write($bytes);
-        $connector->finalize();
+    protected function writeViaPowershellPort(string $port, string $bytes, int $baud): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'kfcom');
+        if ($tmp === false) {
+            throw new \RuntimeException('Tidak bisa membuat file sementara COM.');
+        }
+        $bin = $tmp.'.bin';
+        file_put_contents($bin, $bytes);
+        @unlink($tmp);
+
+        $script = base_path('scripts/windows-com-print.ps1');
+        $process = new Process([
+            'powershell',
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            $script,
+            '-PortName',
+            strtoupper($port),
+            '-FilePath',
+            $bin,
+            '-BaudRate',
+            (string) $baud,
+        ]);
+        $process->setTimeout(12);
+        $process->run();
+        @unlink($bin);
+
+        if (! $process->isSuccessful()) {
+            throw new \RuntimeException(trim($process->getErrorOutput().' '.$process->getOutput()) ?: 'Gagal tulis '.$port);
+        }
     }
 
     protected function powershell(string $command): string

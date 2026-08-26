@@ -15,14 +15,35 @@ class PrinterController extends Controller
 
         $list = $printers->listPrinters();
         $coms = $printers->listComPorts();
+        $comOptions = $printers->listComPortOptions();
         $guess = $printers->guessRppPrinter($extra['windows_printer'] ?? $settings?->printer_name);
         $posPrinters = array_values(array_filter($list, fn ($p) => $printers->isLikelyPosPrinter($p)));
+
+        // Jika tidak ada printer spooler POS, tampilkan COM sebagai opsi USB
+        if (count($posPrinters) === 0 && count($comOptions) > 0) {
+            foreach ($comOptions as $com) {
+                $posPrinters[] = [
+                    'name' => $com['name'],
+                    'port' => $com['port'],
+                    'driver' => 'COM Serial',
+                    'label' => $com['label'],
+                ];
+            }
+            if (! $guess && count($comOptions) === 1) {
+                $guess = [
+                    'name' => $comOptions[0]['name'],
+                    'port' => $comOptions[0]['port'],
+                    'driver' => 'COM Serial',
+                ];
+            }
+        }
 
         return response()->json([
             'success' => true,
             'printers' => $list,
             'pos_printers' => $posPrinters,
             'com_ports' => $coms,
+            'com_options' => $comOptions,
             'suggested' => $guess,
             'saved' => [
                 'windows_printer' => $extra['windows_printer'] ?? $settings?->printer_name,
@@ -52,7 +73,14 @@ class PrinterController extends Controller
         $name = array_key_exists('printer_name', $data) && $data['printer_name'] !== null && $data['printer_name'] !== ''
             ? $data['printer_name']
             : (($data['com_port'] ?? null) ? null : ($extra['windows_printer'] ?? $settings?->printer_name));
-        $com = $data['com_port'] ?: ($extra['cash_drawer_com_port'] ?? $extra['com_port'] ?? null);
+        $com = $data['com_port'] ?: ($extra['com_port'] ?? null);
+
+        // Jika yang tersimpan adalah COMx
+        if (! $com && $name && preg_match('/^COM\d+$/i', $name)) {
+            $com = strtoupper($name);
+            $name = null;
+        }
+
         $baud = (int) ($extra['printer_baud'] ?? 9600);
 
         try {

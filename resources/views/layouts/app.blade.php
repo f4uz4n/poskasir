@@ -142,6 +142,10 @@
     <div id="toast" class="toast"></div>
 
     <script>
+        @php
+            $posStoreSetting = auth()->check() ? auth()->user()?->storeOwner()?->storeSetting : null;
+            $posPrinterExtra = is_array($posStoreSetting?->extra) ? $posStoreSetting->extra : [];
+        @endphp
         window.POS_CONFIG = {
             csrf: document.querySelector('meta[name="csrf-token"]').content,
             routes: {
@@ -154,9 +158,16 @@
                 transactionsRecent: @json(auth()->check() ? route('transactions.recent') : null),
                 printerDevices: @json(auth()->check() ? route('printer.devices') : null),
                 printerRaw: @json(auth()->check() ? route('printer.raw') : null),
+                settingsPrinter: @json(auth()->check() && Route::has('settings.printer') ? route('settings.printer') : null),
             },
             userId: @json(auth()->id()),
-            offlineEnabled: @json(optional(auth()->user()?->storeOwner()->storeSetting)->offline_enabled ?? false),
+            offlineEnabled: @json($posStoreSetting?->offline_enabled ?? false),
+            printer: {
+                printer_type: @json($posStoreSetting?->printer_type),
+                printer_name: @json($posStoreSetting?->printer_name),
+                paper_width: @json($posStoreSetting?->paper_width ?? 58),
+                extra: @json($posPrinterExtra),
+            },
             swUrl: @json(asset('sw.js')),
             assetBase: @json(rtrim(asset('/'), '/').'/'),
         };

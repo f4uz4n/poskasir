@@ -86,7 +86,7 @@
                             $ptype = !empty($settings->extra['windows_printer']) ? 'usb' : 'bluetooth';
                         }
                     @endphp
-                    <select name="printer_type" id="printer-type-select" class="input mt-1">
+                    <select name="printer_type" id="printer-type-select" class="input mt-1" data-no-select2>
                         <option value="bluetooth" @selected($ptype === 'bluetooth')>Bluetooth</option>
                         <option value="usb" @selected($ptype === 'usb')>USB Windows</option>
                         <option value="none" @selected($ptype === 'none')>Tidak memakai printer</option>
@@ -100,15 +100,21 @@
 
                 <div id="usb-windows-fields" class="{{ $ptype === 'usb' ? '' : 'hidden' }} space-y-2">
                     <div>
-                        <label class="text-sm font-medium">Printer USB terdeteksi</label>
-                        <select name="windows_printer" id="windows-printer-select" class="input mt-1">
-                            @php $winPrinter = old('windows_printer', $settings->extra['windows_printer'] ?? $settings->printer_name ?? ''); @endphp
-                            <option value="">— Deteksi otomatis printer kasir —</option>
+                        <label class="text-sm font-medium">Printer USB / port COM</label>
+                        <select name="windows_printer" id="windows-printer-select" class="input mt-1" data-no-select2>
+                            @php
+                                $winPrinter = old('windows_printer', $settings->extra['windows_printer'] ?? $settings->extra['com_port'] ?? $settings->printer_name ?? '');
+                            @endphp
+                            <option value="">— Deteksi otomatis —</option>
                             @if($winPrinter && !preg_match('/onenote|pdf|fax|xps|microsoft/i', $winPrinter))
-                                <option value="{{ $winPrinter }}" selected>{{ $winPrinter }}</option>
+                                <option value="{{ $winPrinter }}" selected>{{ preg_match('/^COM\d+$/i', $winPrinter) ? $winPrinter.' (USB/Serial)' : $winPrinter }}</option>
                             @endif
                         </select>
-                        <p class="text-xs text-slate-500 mt-1">Hanya menampilkan printer kasir (bukan OneNote / PDF).</p>
+                        <p class="text-xs text-slate-500 mt-1">
+                            Pilih printer Windows ATAU port COM. Jika daftar kosong: tancapkan USB, lalu di Windows
+                            tambah printer <strong>Generic / Text Only</strong> (Devices and Printers → Add printer).
+                            Banyak thermal (RPP/Hakpost) hanya tampil sebagai COM — pilih COM-nya.
+                        </p>
                     </div>
                 </div>
 
@@ -449,15 +455,17 @@ function fillWindowsPrinterOptions(printers = [], selected = '') {
     if (!windowsPrinterSelect || windowsPrinterSelect.tagName !== 'SELECT') return;
     const current = selected || windowsPrinterSelect.value || '';
     const keep = new Map();
-    keep.set('', '— Deteksi otomatis printer kasir —');
+    keep.set('', '— Deteksi otomatis —');
     (printers || []).forEach((p) => {
         const name = typeof p === 'string' ? p : p?.name;
         if (!name) return;
         if (/onenote|one note|pdf|fax|xps|microsoft print/i.test(name)) return;
-        keep.set(name, name);
+        const label = p?.label
+            || (/^COM\d+$/i.test(name) ? `${name} (USB/Serial)` : name);
+        keep.set(name, label);
     });
     if (current && !keep.has(current) && !/onenote|pdf|fax|xps/i.test(current)) {
-        keep.set(current, current);
+        keep.set(current, /^COM\d+$/i.test(current) ? `${current} (USB/Serial)` : current);
     }
     windowsPrinterSelect.innerHTML = '';
     keep.forEach((label, value) => {
@@ -526,7 +534,10 @@ function collectDeviceSettings(bt = {}) {
             printer_baud: Number(document.querySelector('[name="printer_baud"]')?.value || 9600),
             printer_usb_mode: document.querySelector('[name="printer_usb_mode"]')?.value || 'windows',
             windows_printer: windowsPrinterSelect?.value || '',
-            com_port: document.getElementById('com-port-input')?.value || '',
+            com_port: (() => {
+                const v = windowsPrinterSelect?.value || document.getElementById('com-port-input')?.value || '';
+                return /^COM\d+$/i.test(v) ? v.toUpperCase() : (document.getElementById('com-port-input')?.value || '');
+            })(),
             printer_auto_cut: Boolean(document.querySelector('[name="printer_auto_cut"]')?.checked),
             cash_drawer: Boolean(document.querySelector('[name="cash_drawer"]')?.checked),
             cash_drawer_when: document.querySelector('[name="cash_drawer_when"]')?.value || 'cash',
@@ -547,6 +558,39 @@ function applyFormSettings() {
     window.PosPrinter?.setSettings(data);
     window.OfflineStore?.saveDeviceSettings(data);
     return data;
+}
+
+async function persistPrinterToServer(data = null) {
+    const payload = data || applyFormSettings();
+    const url = window.POS_CONFIG?.routes?.settingsPrinter;
+    if (!url) return false;
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                printer_type: payload.printer_type,
+                printer_name: payload.printer_name,
+                windows_printer: payload.extra?.windows_printer || payload.printer_name || '',
+                com_port: payload.extra?.com_port || '',
+                printer_usb_mode: payload.extra?.printer_usb_mode || 'windows',
+                paper_width: payload.paper_width || 58,
+                printer_auto_cut: Boolean(payload.extra?.printer_auto_cut),
+                cash_drawer: payload.extra?.cash_drawer !== false,
+                cash_drawer_when: payload.extra?.cash_drawer_when || 'cash',
+                cash_drawer_pin: payload.extra?.cash_drawer_pin || '2',
+            }),
+        });
+        const json = await res.json().catch(() => ({}));
+        return Boolean(res.ok && json.success);
+    } catch (_) {
+        return false;
+    }
 }
 
 async function pairPrinter() {
@@ -573,11 +617,20 @@ async function pairPrinter() {
         setDetectedUi({
             name: result.name,
             type: result.type,
-            message: result.message + '. Klik Simpan pengaturan.',
+            message: result.message + '. Menyimpan ke toko…',
             ok: true,
         });
-        applyFormSettings();
-        window.PosApp?.toast(result.message || 'Printer terdeteksi');
+        const saved = applyFormSettings();
+        const okServer = await persistPrinterToServer(saved);
+        setDetectedUi({
+            name: result.name,
+            type: result.type,
+            message: okServer
+                ? (result.message + '. Tersimpan — Kasir siap memakai printer ini.')
+                : (result.message + '. Tersimpan di perangkat. Klik Simpan pengaturan juga.'),
+            ok: true,
+        });
+        window.PosApp?.toast(okServer ? 'Printer tersimpan untuk Kasir' : (result.message || 'Printer terdeteksi'));
     } catch (e) {
         setStatus(e.message || 'Gagal mendeteksi printer');
         window.PosApp?.toast(e.message || 'Gagal mendeteksi printer');
@@ -603,6 +656,7 @@ async function ensurePrinterReady() {
 async function testPrint() {
     try {
         await ensurePrinterReady();
+        await persistPrinterToServer();
         await window.PosPrinter.printTest();
         window.PosApp?.toast('Struk tes dikirim ke printer');
     } catch (e) {
@@ -613,6 +667,7 @@ async function testPrint() {
 async function testDrawer() {
     try {
         await ensurePrinterReady();
+        await persistPrinterToServer();
         await window.PosPrinter.openCashDrawer({ force: true });
         window.PosApp?.toast('Perintah buka laci dikirim. Jika tidak terbuka: cek kabel RJ11 dan coba Pin 5.');
     } catch (e) {
@@ -653,8 +708,20 @@ async function loadPosPrinters() {
         const res = await fetch(window.POS_CONFIG.routes.printerDevices, { headers: { Accept: 'application/json' } });
         const json = await res.json();
         if (!json.success) return;
-        const list = json.pos_printers?.length ? json.pos_printers : [];
-        fillWindowsPrinterOptions(list, windowsPrinterSelect?.value || json.suggested?.name || '');
+        const list = [
+            ...(json.pos_printers || []),
+            ...((json.com_ports || []).map((c) => ({ name: c, port: c, driver: 'COM Serial', label: `${c} (USB/Serial)` }))),
+        ];
+        // unique by name
+        const uniq = [];
+        const seen = new Set();
+        list.forEach((p) => {
+            const n = String(p.name || '').toUpperCase();
+            if (!n || seen.has(n)) return;
+            seen.add(n);
+            uniq.push(p);
+        });
+        fillWindowsPrinterOptions(uniq, windowsPrinterSelect?.value || json.suggested?.name || json.saved?.com_port || '');
         return json;
     } catch (_) {
         return null;
@@ -713,6 +780,17 @@ syncUsbFields();
 })();
 
 document.querySelector('form')?.addEventListener('submit', () => {
+    // Pastikan nama USB/COM ikut tersimpan ke printer_name sebelum POST
+    if (typeSelect?.value === 'usb' && windowsPrinterSelect?.value) {
+        if (printerNameInput) printerNameInput.value = windowsPrinterSelect.value;
+        if (detectedNameEl) detectedNameEl.textContent = windowsPrinterSelect.value;
+        const comInput = document.getElementById('com-port-input');
+        if (comInput) {
+            comInput.value = /^COM\d+$/i.test(windowsPrinterSelect.value)
+                ? windowsPrinterSelect.value.toUpperCase()
+                : '';
+        }
+    }
     applyFormSettings();
 });
 </script>

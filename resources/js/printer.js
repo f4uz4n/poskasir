@@ -411,10 +411,10 @@ class PosPrinter {
         return this.status();
     }
 
-    async waitForAdvertisement(device, timeoutMs = 10000) {
+    async waitForAdvertisement(device, timeoutMs = 2500) {
         if (!device?.watchAdvertisements) return false;
         try {
-            await Promise.race([
+            const seen = await Promise.race([
                 new Promise(async (resolve, reject) => {
                     const onAd = () => {
                         device.removeEventListener('advertisementreceived', onAd);
@@ -430,7 +430,7 @@ class PosPrinter {
                 }),
                 sleep(timeoutMs).then(() => false),
             ]);
-            return true;
+            return Boolean(seen);
         } catch (_) {
             return false;
         }
@@ -448,15 +448,35 @@ class PosPrinter {
         } catch (_) {
             return false;
         }
+        if (!devices.length) return false;
 
-        const device = this.pickBluetoothDevice(devices, saved);
-        if (!device) return false;
+        // Coba semua perangkat yang sudah diizinkan browser (bukan hanya 1)
+        const ordered = [];
+        const preferred = this.pickBluetoothDevice(devices, saved);
+        if (preferred) ordered.push(preferred);
+        devices.forEach((d) => {
+            if (!ordered.includes(d)) ordered.push(d);
+        });
 
-        const attempts = [0, 700, 1600];
-        for (let i = 0; i < attempts.length; i += 1) {
-            if (attempts[i]) await sleep(attempts[i]);
+        // Langsung gatt.connect — jangan tunggu iklan dulu (itu yang bikin lambat & gagal)
+        for (const device of ordered) {
             try {
-                if (i > 0) await this.waitForAdvertisement(device, 6000);
+                if (device.gatt?.connected) {
+                    try { device.gatt.disconnect(); } catch (_) {}
+                    await sleep(150);
+                }
+                await this.bindBluetoothDevice(device);
+                this.rememberBluetoothDevice(device);
+                return true;
+            } catch (_) {
+                this.btCharacteristic = null;
+            }
+        }
+
+        // Fallback: tunggu iklan singkat lalu coba lagi
+        for (const device of ordered) {
+            try {
+                await this.waitForAdvertisement(device, 2000);
                 await this.bindBluetoothDevice(device);
                 this.rememberBluetoothDevice(device);
                 return true;
@@ -471,17 +491,33 @@ class PosPrinter {
         return false;
     }
 
+    /** Reconnect diam-diam berkali-kali (saat kembali ke Kasir setelah pindah menu). */
+    async reconnectBluetoothPersistent({ tries = 5, gapMs = 700 } = {}) {
+        for (let i = 0; i < tries; i += 1) {
+            if (this.isConnected() && this.type === 'bluetooth') return true;
+            const ok = await this.reconnectBluetooth();
+            if (ok) return true;
+            if (i < tries - 1) await sleep(gapMs);
+        }
+        return false;
+    }
+
     async bindBluetoothDevice(device) {
         this.btDevice = device;
         if (!device._kasirflowDisconnectBound) {
             device._kasirflowDisconnectBound = true;
             device.addEventListener('gattserverdisconnected', () => {
                 this.btCharacteristic = null;
-                this.emitStatus();
+                // Jangan emit "belum terkoneksi" agresif — biarkan POS tetap "siap"
+                // sambil reconnect diam-diam
                 if ((this.settings.printer_type || 'bluetooth') === 'bluetooth') {
                     setTimeout(() => {
-                        this.reconnectBluetooth().catch(() => {});
-                    }, 1200);
+                        this.reconnectBluetoothPersistent({ tries: 6, gapMs: 600 })
+                            .then((ok) => {
+                                if (ok) this.emitStatus();
+                            })
+                            .catch(() => {});
+                    }, 400);
                 }
             });
         }
@@ -517,23 +553,24 @@ class PosPrinter {
         if (type === 'none') return false;
 
         if (type === 'usb') {
-            if (this.isConnected() && this.type === 'windows') return true;
+            if (this.isConnected() && this.type === 'windows' && this.windowsPrinter) return true;
             await this.connectWindowsUsb();
             OfflineStore.saveDeviceSettings({
                 printer_type: 'usb',
                 printer_name: this.windowsPrinter || this.settings.printer_name || '',
+                printer_setup_done: true,
                 bt_paired: false,
                 extra: {
                     ...(this.settings.extra || {}),
                     windows_printer: this.windowsPrinter || this.settings.extra?.windows_printer || null,
-                    printer_usb_mode: this.settings.extra?.printer_usb_mode || 'windows',
+                    printer_usb_mode: 'windows',
                 },
             });
-            return true;
+            return Boolean(this.windowsPrinter || this.settings.printer_name);
         }
 
         if (this.isConnected() && this.type === 'bluetooth') return true;
-        return this.reconnectBluetooth();
+        return this.reconnectBluetoothPersistent({ tries: 4, gapMs: 600 });
     }
 
     /**
@@ -551,17 +588,22 @@ class PosPrinter {
                         ok: false,
                         type: 'usb',
                         name: null,
-                        message: 'Printer USB kasir belum ditemukan. Pastikan printer tertancap, driver Windows terpasang, dan bukan OneNote/PDF.',
+                        message: 'Printer USB/COM belum ditemukan. Tancapkan printer, instal di Windows, atau pilih port COM di daftar.',
                         printers: devices.pos_printers || [],
+                        com_ports: devices.com_ports || [],
                     };
                 }
+
+                const isCom = /^COM\d+$/i.test(thermal.name);
                 this.settings = {
                     ...this.settings,
                     printer_type: 'usb',
                     printer_name: thermal.name,
+                    printer_setup_done: true,
                     extra: {
                         ...(this.settings.extra || {}),
-                        windows_printer: thermal.name,
+                        windows_printer: isCom ? null : thermal.name,
+                        com_port: isCom ? thermal.name.toUpperCase() : (this.settings.extra?.com_port || null),
                         printer_usb_mode: 'windows',
                         printer_profile: this.settings.extra?.printer_profile || 'auto',
                     },
@@ -579,8 +621,11 @@ class PosPrinter {
                     ok: true,
                     type: 'usb',
                     name: thermal.name,
-                    message: `Printer USB terdeteksi: ${thermal.name}`,
+                    message: isCom
+                        ? `Port USB/Serial terdeteksi: ${thermal.name}`
+                        : `Printer USB terdeteksi: ${thermal.name}`,
                     printers: devices.pos_printers || [],
+                    com_ports: devices.com_ports || [],
                 };
             } catch (err) {
                 return {
@@ -659,31 +704,45 @@ class PosPrinter {
             ...(devices.pos_printers || []),
             ...(devices.printers || []),
         ];
+        const comPorts = devices.com_ports || [];
 
         const isVirtual = (p) => /onenote|one note|microsoft print to pdf|microsoft xps|fax|send to|adobe pdf|pdfcreator|pdf24|cutepdf|bullzip|virtual|document writer|portprompt/i
             .test(String((p?.name || '') + ' ' + (p?.driver || '') + ' ' + (p?.port || '')));
 
+        const isComName = (name) => /^COM\d+$/i.test(String(name || ''));
+
         const isPos = (p) => {
             if (!p?.name || isVirtual(p)) return false;
+            if (isComName(p.name) || isComName(p.port)) return true;
             const blob = `${p.name} ${p.driver || ''} ${p.port || ''}`;
             if (/^USB\d+/i.test(String(p.port || ''))) return true;
+            if (/COM Serial/i.test(String(p.driver || ''))) return true;
             return /pos|thermal|receipt|epson|tm-|xprinter|xp-|gprinter|gp-|rongta|rpp|goojprt|hakpost|hprt|star|sm-|bixolon|srp-|citizen|munbyn|usb printing/i.test(blob);
         };
 
-        if (devices.suggested?.name && isPos(devices.suggested)) {
+        if (devices.suggested?.name && (isPos(devices.suggested) || isComName(devices.suggested.name))) {
             return devices.suggested;
         }
 
-        const preferred = this.settings.extra?.windows_printer || this.settings.printer_name;
+        const preferred = this.settings.extra?.com_port
+            || this.settings.extra?.windows_printer
+            || this.settings.printer_name;
+
         if (preferred && !/onenote|one note|microsoft print to pdf|microsoft xps|fax|adobe pdf|pdfcreator|pdf24/i.test(preferred)) {
+            if (isComName(preferred) && comPorts.map((c) => String(c).toUpperCase()).includes(String(preferred).toUpperCase())) {
+                return { name: String(preferred).toUpperCase(), port: String(preferred).toUpperCase(), driver: 'COM Serial' };
+            }
             const hit = list.find((p) => String(p.name).toLowerCase() === String(preferred).toLowerCase());
             if (hit && !isVirtual(hit)) return hit;
-            // Nama dipilih user di pengaturan — hormati meskipun belum ada di list Windows
-            return { name: preferred };
+            // Jangan anggap sukses jika nama tidak ada di Windows/COM
         }
 
         const thermal = list.find(isPos);
         if (thermal) return thermal;
+
+        if (comPorts.length === 1) {
+            return { name: String(comPorts[0]).toUpperCase(), port: String(comPorts[0]).toUpperCase(), driver: 'COM Serial' };
+        }
 
         return null;
     }
@@ -696,21 +755,14 @@ class PosPrinter {
         }
         if (type === 'usb') {
             await this.connectWindowsUsb();
+            this.type = 'windows';
             return true;
         }
 
-        // Bluetooth: selalu coba reconnect diam-diam (tanpa dialog)
-        let ok = await this.reconnectBluetooth();
-        if (!ok) {
-            await sleep(800);
-            ok = await this.reconnectBluetooth();
-        }
+        const ok = await this.reconnectBluetoothPersistent({ tries: 5, gapMs: 700 });
         if (ok) return true;
 
-        if (this.isPairedLocally() || this.settings.printer_setup_done || this.settings.printer_name) {
-            throw new Error('Printer Bluetooth belum aktif. Pastikan printer menyala dan dekat dengan kasir.');
-        }
-        throw new Error('Printer belum dipasangkan. Buka Pengaturan → Deteksi printer → Simpan.');
+        throw new Error('Bluetooth terputus. Klik Sambungkan ulang di Kasir, lalu cetak lagi.');
     }
 
     async discoverWriteCharacteristic(server) {
@@ -779,28 +831,65 @@ class PosPrinter {
 
     async connectWindowsUsb() {
         const extra = this.settings.extra || {};
-        let suggested = extra.windows_printer || this.settings.printer_name || null;
-        let com = extra.com_port || null;
+        let suggested = extra.windows_printer || this.settings.printer_name || this.windowsPrinter || null;
+        let com = extra.com_port || this.comPort || null;
+
+        if (suggested && /^COM\d+$/i.test(suggested)) {
+            com = suggested.toUpperCase();
+            suggested = null;
+        }
 
         try {
             const devices = await this.fetchWindowsDevices();
-            suggested = extra.windows_printer
-                || devices.saved?.windows_printer
-                || devices.suggested?.name
-                || this.settings.printer_name
-                || suggested;
-            com = extra.com_port || devices.saved?.com_port || com;
-            if (!suggested && devices.printers?.length === 1) {
-                suggested = devices.printers[0].name;
+            if (!com) {
+                com = devices.saved?.com_port || null;
             }
-            if (!com && devices.com_ports?.length === 1) {
-                com = devices.com_ports[0];
+            if (!suggested) {
+                suggested = devices.saved?.windows_printer || null;
+            }
+
+            if (suggested && /^COM\d+$/i.test(suggested)) {
+                com = suggested.toUpperCase();
+                suggested = null;
+            }
+
+            if (!suggested && !com) {
+                if (devices.suggested?.name) {
+                    if (/^COM\d+$/i.test(devices.suggested.name)) {
+                        com = String(devices.suggested.name).toUpperCase();
+                    } else {
+                        suggested = devices.suggested.name;
+                    }
+                } else if ((devices.pos_printers || []).length === 1) {
+                    const only = devices.pos_printers[0];
+                    if (/^COM\d+$/i.test(only.name)) com = String(only.name).toUpperCase();
+                    else suggested = only.name;
+                } else if ((devices.com_ports || []).length === 1) {
+                    com = String(devices.com_ports[0]).toUpperCase();
+                }
             }
         } catch (_) {}
 
-        this.windowsPrinter = suggested || null;
+        this.windowsPrinter = suggested || (com || null);
         this.comPort = com || null;
         this.type = 'windows';
+        if (!this.windowsPrinter && !this.comPort) {
+            // tetap windows agar writeBytes memakai jalur USB, target dari settings
+            this.windowsPrinter = this.settings.extra?.windows_printer || null;
+            this.comPort = this.settings.extra?.com_port || this.comPort;
+        }
+        this.settings = {
+            ...this.settings,
+            printer_type: 'usb',
+            printer_name: this.windowsPrinter || this.comPort || this.settings.printer_name || '',
+            printer_setup_done: true,
+            extra: {
+                ...(this.settings.extra || {}),
+                windows_printer: suggested || this.settings.extra?.windows_printer || null,
+                com_port: this.comPort,
+                printer_usb_mode: 'windows',
+            },
+        };
         this.emitStatus();
 
         return this.status();
@@ -882,26 +971,47 @@ class PosPrinter {
     async ensureBluetooth() {
         if (this.btCharacteristic && this.btDevice?.gatt?.connected) return;
         if (this.btDevice) {
-            await this.bindBluetoothDevice(this.btDevice);
-            return;
+            try {
+                await this.bindBluetoothDevice(this.btDevice);
+                return;
+            } catch (_) {}
         }
-        const ok = await this.reconnectBluetooth();
+        const ok = await this.reconnectBluetoothPersistent({ tries: 6, gapMs: 400 });
         if (ok) return;
-        throw new Error('Printer Bluetooth belum aktif. Pastikan printer menyala. Jika baru ganti browser, buka Pengaturan → Deteksi printer → Simpan.');
+        throw new Error('Bluetooth belum siap. Pastikan printer menyala, atau klik Sambungkan ulang.');
+    }
+
+    resolveUsbTargets() {
+        const name = this.windowsPrinter || this.settings.extra?.windows_printer || this.settings.printer_name || null;
+        const com = this.comPort || this.settings.extra?.com_port || null;
+        if (name && /^COM\d+$/i.test(name)) {
+            return { printerName: null, comPort: String(name).toUpperCase() };
+        }
+        return {
+            printerName: name,
+            comPort: com ? String(com).toUpperCase() : null,
+        };
     }
 
     async writeBytes(bytes) {
         const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        const prefer = this.settings.printer_type || 'bluetooth';
 
-        // Jika belum ada sesi aktif tapi USB sudah dikonfigurasi, hubungkan diam-diam
-        if (!this.type || (this.type === 'bluetooth' && !this.btCharacteristic)) {
-            const prefer = this.settings.printer_type || 'bluetooth';
-            if (prefer === 'usb') {
+        // USB: selalu lewat Windows RAW (sama seperti Tes cetak di Pengaturan)
+        if (prefer === 'usb') {
+            if (this.type !== 'windows') {
                 await this.connectWindowsUsb();
             }
+            const target = this.resolveUsbTargets();
+            return this.sendWindowsRaw(data, target.printerName, target.comPort);
         }
 
-        if (this.type === 'bluetooth') {
+        if (this.type === 'windows') {
+            const target = this.resolveUsbTargets();
+            return this.sendWindowsRaw(data, target.printerName, target.comPort);
+        }
+
+        if (this.type === 'bluetooth' || prefer === 'bluetooth') {
             await this.ensureBluetooth();
             const chunkSize = this.profile.chunkSize || 20;
             const delay = this.profile.chunkDelay || 40;
@@ -943,17 +1053,7 @@ class PosPrinter {
             return true;
         }
 
-        if (this.type === 'windows') {
-            return this.sendWindowsRaw(data, this.windowsPrinter, this.comPort);
-        }
-
-        // Fallback terakhir: jika pengaturan USB, kirim via Windows RAW
-        if ((this.settings.printer_type || '') === 'usb') {
-            await this.connectWindowsUsb();
-            return this.sendWindowsRaw(data, this.windowsPrinter || this.settings.extra?.windows_printer || this.settings.printer_name, this.comPort);
-        }
-
-        throw new Error('Printer belum siap. Buka Pengaturan → Deteksi printer → Simpan.');
+        throw new Error('Printer belum siap. Buka Pengaturan → Deteksi → Tes cetak.');
     }
 
     async sendWindowsRaw(bytes, printerName = null, comPort = null) {
@@ -962,8 +1062,25 @@ class PosPrinter {
         if (!url) {
             throw new Error('Endpoint cetak USB Windows belum tersedia. Refresh halaman.');
         }
+
+        let name = printerName;
+        let com = comPort;
+        if (name === undefined || name === null) {
+            const t = this.resolveUsbTargets();
+            name = t.printerName;
+            if (com == null) com = t.comPort;
+        }
+        if (com === undefined) {
+            com = this.comPort || this.settings.extra?.com_port || null;
+        }
+        if (name && /^COM\d+$/i.test(name)) {
+            com = String(name).toUpperCase();
+            name = null;
+        }
+
         const res = await fetch(url, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
@@ -972,16 +1089,21 @@ class PosPrinter {
             },
             body: JSON.stringify({
                 bytes: this.bytesToBase64(data),
-                printer_name: printerName === undefined ? this.windowsPrinter : printerName,
-                com_port: comPort === undefined ? this.comPort : comPort,
+                printer_name: name,
+                com_port: com,
             }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.success) {
-            throw new Error(json.message || 'Gagal kirim ke printer Windows. Pastikan printer USB terpasang di Devices and Printers.');
+            throw new Error(json.message || 'Gagal cetak USB. Pilih printer/COM di Pengaturan lalu Tes cetak.');
         }
         if (json.result?.target) {
-            this.windowsPrinter = json.result.target;
+            if (/^COM\d+$/i.test(json.result.target)) {
+                this.comPort = json.result.target;
+            } else {
+                this.windowsPrinter = json.result.target;
+            }
+            this.type = 'windows';
             this.emitStatus();
         }
         return true;

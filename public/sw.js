@@ -1,4 +1,4 @@
-const CACHE_NAME = 'poskasir-v3';
+const CACHE_NAME = 'poskasir-v6';
 const BASE = new URL('./', self.location).pathname.replace(/\/?$/, '/');
 
 const PRECACHE = [
@@ -48,9 +48,29 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  if (url.pathname.includes('/api/') || url.pathname.includes('/transactions')) {
+  // Jangan cache API / transaksi / printer
+  if (
+    url.pathname.includes('/api/')
+    || url.pathname.includes('/transactions')
+    || url.pathname.includes('/printer/')
+    || url.pathname.includes('/settings/printer')
+  ) {
+    event.respondWith(fetch(request).catch(() => caches.match(request)));
+    return;
+  }
+
+  // Asset Vite: network-first agar JS printer terbaru selalu dipakai
+  if (url.pathname.includes('/build/assets/')) {
     event.respondWith(
-      fetch(request).catch(() => caches.match(request))
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }
@@ -80,7 +100,7 @@ self.addEventListener('fetch', (event) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         return response;
-      }).catch(() => cached);
+      });
     })
   );
 });

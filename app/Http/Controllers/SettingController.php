@@ -85,6 +85,28 @@ class SettingController extends Controller
         $extra['cash_drawer_com_port'] = $data['cash_drawer_com_port'] ? strtoupper(trim($data['cash_drawer_com_port'])) : null;
         $extra['scanner_enabled'] = $request->boolean('scanner_enabled');
         $extra['printer_setup_done'] = ($data['printer_type'] ?? 'bluetooth') !== 'none';
+
+        // Sinkronkan nama printer USB agar Kasir bisa cetak tanpa pairing ulang
+        if (($data['printer_type'] ?? '') === 'usb') {
+            $usbName = trim((string) ($data['windows_printer'] ?: ($data['printer_name'] ?? '')));
+            if ($usbName !== '' && preg_match('/^COM\d+$/i', $usbName)) {
+                $extra['com_port'] = strtoupper($usbName);
+                $extra['windows_printer'] = null;
+                $data['printer_name'] = strtoupper($usbName);
+                $data['com_port'] = strtoupper($usbName);
+            } elseif ($usbName !== '') {
+                $extra['windows_printer'] = $usbName;
+                $data['printer_name'] = $usbName;
+                if (empty($extra['cash_drawer_windows_printer'])) {
+                    $extra['cash_drawer_windows_printer'] = $usbName;
+                }
+            }
+            if (! empty($data['com_port'])) {
+                $extra['com_port'] = strtoupper(trim((string) $data['com_port']));
+            }
+            $extra['printer_usb_mode'] = $extra['printer_usb_mode'] ?: 'windows';
+        }
+
         unset(
             $data['printer_profile'],
             $data['printer_baud'],
@@ -142,6 +164,100 @@ class SettingController extends Controller
         ]);
 
         return back()->with('success', 'Pengaturan berhasil disimpan.');
+    }
+
+    /**
+     * Simpan khusus pengaturan printer (dipanggil otomatis setelah Deteksi/Tes cetak).
+     */
+    public function updatePrinter(Request $request)
+    {
+        $user = Auth::user();
+        abort_unless($user->isStoreOwner(), 403);
+
+        $owner = $user->storeOwner();
+        abort_unless($owner, 403);
+
+        $data = $request->validate([
+            'printer_type' => ['required', 'in:bluetooth,usb,none'],
+            'printer_name' => ['nullable', 'string', 'max:255'],
+            'windows_printer' => ['nullable', 'string', 'max:255'],
+            'com_port' => ['nullable', 'string', 'max:20'],
+            'printer_usb_mode' => ['nullable', 'in:windows,serial,webusb'],
+            'paper_width' => ['nullable', 'in:58,80'],
+            'printer_auto_cut' => ['nullable', 'boolean'],
+            'cash_drawer' => ['nullable', 'boolean'],
+            'cash_drawer_when' => ['nullable', 'in:cash,always'],
+            'cash_drawer_pin' => ['nullable', 'in:both,2,5'],
+        ]);
+
+        $settings = $owner->storeSetting;
+        if (! $settings) {
+            $settings = $owner->storeSetting()->create([
+                'user_id' => $owner->id,
+                'store_name' => $owner->store_name ?: $owner->name,
+            ]);
+        }
+
+        $extra = is_array($settings->extra) ? $settings->extra : [];
+        $type = $data['printer_type'];
+        $name = trim((string) ($data['printer_name'] ?? ''));
+        $windows = trim((string) ($data['windows_printer'] ?? ''));
+        $com = strtoupper(trim((string) ($data['com_port'] ?? '')));
+
+        if ($type === 'usb') {
+            $target = $windows ?: $name;
+            if ($target !== '' && preg_match('/^COM\d+$/i', $target)) {
+                $com = strtoupper($target);
+                $extra['com_port'] = $com;
+                $extra['windows_printer'] = null;
+                $name = $com;
+            } elseif ($target !== '') {
+                $extra['windows_printer'] = $target;
+                $name = $target;
+                if ($com !== '') {
+                    $extra['com_port'] = $com;
+                }
+            }
+            $extra['printer_usb_mode'] = $data['printer_usb_mode'] ?? 'windows';
+            if (empty($extra['cash_drawer_windows_printer']) && ! empty($extra['windows_printer'])) {
+                $extra['cash_drawer_windows_printer'] = $extra['windows_printer'];
+            }
+        } else {
+            if ($com !== '') {
+                $extra['com_port'] = $com;
+            }
+        }
+
+        $extra['printer_setup_done'] = $type !== 'none';
+        if (array_key_exists('printer_auto_cut', $data) || $request->has('printer_auto_cut')) {
+            $extra['printer_auto_cut'] = $request->boolean('printer_auto_cut');
+        }
+        if (array_key_exists('cash_drawer', $data) || $request->has('cash_drawer')) {
+            $extra['cash_drawer'] = $request->boolean('cash_drawer');
+        }
+        if (! empty($data['cash_drawer_when'])) {
+            $extra['cash_drawer_when'] = $data['cash_drawer_when'];
+        }
+        if (! empty($data['cash_drawer_pin'])) {
+            $extra['cash_drawer_pin'] = $data['cash_drawer_pin'];
+        }
+
+        $settings->update([
+            'printer_type' => $type,
+            'printer_name' => $name !== '' ? $name : $settings->printer_name,
+            'paper_width' => $data['paper_width'] ?? $settings->paper_width ?? 58,
+            'extra' => $extra,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pengaturan printer disimpan.',
+            'printer' => [
+                'printer_type' => $settings->printer_type,
+                'printer_name' => $settings->printer_name,
+                'extra' => $settings->extra,
+            ],
+        ]);
     }
 
     public function precacheManifest(OfflinePrecacheService $precache)
