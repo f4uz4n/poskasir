@@ -71,37 +71,64 @@
 
             <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
                 <div>
-                    <div class="font-semibold text-sm">Printer kasir</div>
-                    <p class="text-xs text-slate-500 mt-1">Atur sekali di sini. Di halaman Kasir printer akan terhubung otomatis — tidak perlu klik Hubungkan lagi.</p>
+                    <div class="font-semibold text-sm">Printer & laci uang</div>
+                    <p class="text-xs text-slate-500 mt-1">
+                        Pilih <strong>Bluetooth</strong> atau <strong>USB</strong>, lalu klik <strong>Deteksi printer</strong>.
+                        Setelah Simpan, Kasir memakai printer ini tanpa sambungkan ulang.
+                    </p>
                 </div>
+
                 <div>
-                    <label class="text-sm font-medium">Cara cetak</label>
+                    <label class="text-sm font-medium">Jenis koneksi</label>
+                    @php
+                        $ptype = old('printer_type', $settings->printer_type ?: 'bluetooth');
+                        if ($ptype === 'auto') {
+                            $ptype = !empty($settings->extra['windows_printer']) ? 'usb' : 'bluetooth';
+                        }
+                    @endphp
                     <select name="printer_type" id="printer-type-select" class="input mt-1">
-                        <option value="bluetooth" @selected(($settings->printer_type ?? '') === 'bluetooth')>Bluetooth (RPP02N)</option>
-                        <option value="usb" @selected(($settings->printer_type ?? '') === 'usb')>USB Windows</option>
-                        <option value="none" @selected(($settings->printer_type ?? '') === 'none')>Tidak memakai printer</option>
+                        <option value="bluetooth" @selected($ptype === 'bluetooth')>Bluetooth</option>
+                        <option value="usb" @selected($ptype === 'usb')>USB Windows</option>
+                        <option value="none" @selected($ptype === 'none')>Tidak memakai printer</option>
                     </select>
                 </div>
-                <div>
-                    <label class="text-sm font-medium">Nama printer</label>
-                    <input name="printer_name" class="input mt-1" value="{{ old('printer_name', $settings->printer_name ?? '') }}" placeholder="RPP02N">
-                </div>
-                <input type="hidden" name="printer_profile" value="{{ old('printer_profile', $settings->extra['printer_profile'] ?? 'rpp02n') }}">
+
+                <input type="hidden" name="printer_profile" value="{{ old('printer_profile', $settings->extra['printer_profile'] ?? 'auto') }}">
                 <input type="hidden" name="printer_baud" value="{{ old('printer_baud', $settings->extra['printer_baud'] ?? 9600) }}">
                 <input type="hidden" name="printer_usb_mode" value="{{ old('printer_usb_mode', $settings->extra['printer_usb_mode'] ?? 'windows') }}">
-                <div id="usb-windows-fields" class="{{ ($settings->printer_type ?? '') === 'usb' ? '' : 'hidden' }} space-y-3">
+                <input type="hidden" name="com_port" id="com-port-input" value="{{ old('com_port', $settings->extra['com_port'] ?? '') }}">
+
+                <div id="usb-windows-fields" class="{{ $ptype === 'usb' ? '' : 'hidden' }} space-y-2">
                     <div>
-                        <label class="text-sm font-medium">Printer Windows</label>
+                        <label class="text-sm font-medium">Printer USB terdeteksi</label>
                         <select name="windows_printer" id="windows-printer-select" class="input mt-1">
                             @php $winPrinter = old('windows_printer', $settings->extra['windows_printer'] ?? $settings->printer_name ?? ''); @endphp
-                            <option value="">Otomatis deteksi</option>
-                            @if($winPrinter)
+                            <option value="">— Deteksi otomatis printer kasir —</option>
+                            @if($winPrinter && !preg_match('/onenote|pdf|fax|xps|microsoft/i', $winPrinter))
                                 <option value="{{ $winPrinter }}" selected>{{ $winPrinter }}</option>
                             @endif
                         </select>
+                        <p class="text-xs text-slate-500 mt-1">Hanya menampilkan printer kasir (bukan OneNote / PDF).</p>
                     </div>
-                    <input type="hidden" name="com_port" id="com-port-input" value="{{ old('com_port', $settings->extra['com_port'] ?? '') }}">
                 </div>
+
+                <div class="rounded-xl border border-emerald-100 bg-white p-3 space-y-2">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <div class="text-xs text-slate-500">Printer aktif</div>
+                            <div id="detected-printer-name" class="font-semibold text-sm">
+                                {{ $settings->printer_name && !preg_match('/onenote|pdf|fax|xps/i', $settings->printer_name) ? $settings->printer_name : 'Belum terdeteksi' }}
+                            </div>
+                            <div id="detected-printer-meta" class="text-xs text-slate-500 mt-0.5">
+                                Mode: {{ $ptype === 'usb' ? 'USB Windows' : ($ptype === 'bluetooth' ? 'Bluetooth' : 'Nonaktif') }}
+                            </div>
+                        </div>
+                        <button type="button" id="btn-pair-printer" class="btn btn-primary text-sm whitespace-nowrap">Deteksi printer</button>
+                    </div>
+                    <input type="hidden" name="printer_name" id="printer-name-input" value="{{ old('printer_name', $settings->printer_name ?? '') }}">
+                    <p id="printer-setup-status" class="text-xs text-slate-500">Pilih Bluetooth atau USB, lalu klik Deteksi printer.</p>
+                </div>
+
                 <label class="flex items-center gap-2 text-sm">
                     <input type="checkbox" name="printer_auto_cut" value="1" @checked(old('printer_auto_cut', $settings->extra['printer_auto_cut'] ?? false))>
                     <span>Potong kertas otomatis</span>
@@ -122,37 +149,19 @@
                     <div>
                         <label class="text-sm font-medium">Pin laci (port DK)</label>
                         <select name="cash_drawer_pin" class="input mt-1">
-                            @php $drawerPin = old('cash_drawer_pin', $settings->extra['cash_drawer_pin'] ?? 'both'); @endphp
-                            <option value="both" @selected($drawerPin === 'both')>Pin 2 dan 5</option>
-                            <option value="2" @selected($drawerPin === '2')>Pin 2 (umum)</option>
+                            @php $drawerPin = old('cash_drawer_pin', $settings->extra['cash_drawer_pin'] ?? '2'); @endphp
+                            <option value="2" @selected($drawerPin === '2')>Pin 2 (Hakpost & umum)</option>
                             <option value="5" @selected($drawerPin === '5')>Pin 5</option>
+                            <option value="both" @selected($drawerPin === 'both')>Pin 2 (cadangan)</option>
                         </select>
                     </div>
                 </div>
                 <p class="text-xs text-slate-500">
-                    Perintah buka laci dikirim ke printer yang sama saat cetak struk (termasuk Bluetooth).
-                    Pastikan kabel RJ11 masuk ke port <strong>DK / Cash Drawer</strong> di printer (bukan port charge/USB),
-                    dan laci mendapat daya (biasanya dari printer).
+                    Laci dibuka <strong>satu kali</strong> lewat printer yang sama. Pastikan kabel RJ11 ke port
+                    <strong>DK / Cash Drawer</strong>. Untuk Hakpost biasanya Pin 2.
                 </p>
-                <div>
-                    <label class="text-sm font-medium">Printer Windows untuk buka laci</label>
-                    <select name="cash_drawer_windows_printer" id="cash-drawer-windows-select" class="input mt-1">
-                        @php $drawerWin = old('cash_drawer_windows_printer', $settings->extra['cash_drawer_windows_printer'] ?? ''); @endphp
-                        <option value="">— Pilih printer USB yang kabel RJ11 laci terpasang —</option>
-                        @if($drawerWin)
-                            <option value="{{ $drawerWin }}" selected>{{ $drawerWin }}</option>
-                        @endif
-                    </select>
-                </div>
-                <div>
-                    <label class="text-sm font-medium">Atau Port COM trigger laci</label>
-                    <input name="cash_drawer_com_port" id="cash-drawer-com-input" class="input mt-1" placeholder="COM3" value="{{ old('cash_drawer_com_port', $settings->extra['cash_drawer_com_port'] ?? '') }}">
-                    <p class="text-xs text-slate-500 mt-1">Isi jika laci/adapter muncul sebagai COM di Device Manager. Contoh: COM3</p>
-                </div>
-                <p class="text-xs text-amber-700">
-                    Setelah ubah pin/port, klik <strong>Tes buka laci</strong> dulu. Jika belum terbuka, ganti Pin ke
-                    <strong>Pin 2</strong> lalu tes lagi. Opsi printer Windows / COM di bawah hanya bila laci menempel di perangkat lain.
-                </p>
+                <input type="hidden" name="cash_drawer_windows_printer" id="cash-drawer-windows-select" value="{{ old('cash_drawer_windows_printer', $settings->extra['cash_drawer_windows_printer'] ?? '') }}">
+                <input type="hidden" name="cash_drawer_com_port" id="cash-drawer-com-input" value="{{ old('cash_drawer_com_port', $settings->extra['cash_drawer_com_port'] ?? '') }}">
 
                 <div class="border-t border-slate-200 pt-3 space-y-2">
                     <div class="font-semibold text-sm">Scanner barcode</div>
@@ -160,14 +169,12 @@
                         <input type="checkbox" name="scanner_enabled" value="1" @checked(old('scanner_enabled', $settings->extra['scanner_enabled'] ?? true))>
                         <span>Aktifkan scanner (USB/Bluetooth keyboard wedge)</span>
                     </label>
-                    <p class="text-xs text-slate-500">Scanner tidak perlu disambungkan ulang di Kasir. Pengaturan disimpan offline di browser ini.</p>
+                    <p class="text-xs text-slate-500">Scanner tidak perlu disambungkan ulang di Kasir.</p>
                 </div>
                 <div class="flex flex-col sm:flex-row gap-2">
-                    <button type="button" id="btn-pair-printer" class="btn btn-secondary flex-1 text-sm whitespace-normal">Pasangkan printer</button>
                     <button type="button" id="btn-test-print" class="btn btn-primary flex-1 text-sm whitespace-normal">Tes cetak</button>
                     <button type="button" id="btn-test-drawer" class="btn btn-secondary flex-1 text-sm whitespace-normal">Tes buka laci</button>
                 </div>
-                <p id="printer-setup-status" class="text-xs text-slate-500">Status: belum dipasangkan di browser ini.</p>
             </div>
             @if($canLockStock)
             <label class="flex items-center gap-2 text-sm rounded-xl border border-amber-200 bg-amber-50 p-3">
@@ -421,22 +428,46 @@ window.PosApp?.updateInstallUi?.();
 })();
 
 const typeSelect = document.getElementById('printer-type-select');
-const usbFields = document.getElementById('usb-windows-fields');
 const statusEl = document.getElementById('printer-setup-status');
+const detectedNameEl = document.getElementById('detected-printer-name');
+const detectedMetaEl = document.getElementById('detected-printer-meta');
+const printerNameInput = document.getElementById('printer-name-input');
+const windowsPrinterSelect = document.getElementById('windows-printer-select');
+const usbFields = document.getElementById('usb-windows-fields');
 
 function syncUsbFields() {
-    if (!usbFields || !typeSelect) return;
-    usbFields.classList.toggle('hidden', typeSelect.value !== 'usb');
-    if (typeSelect.value === 'usb') {
-        usbFields.querySelectorAll('select').forEach((el) => window.reinitSelect2?.(el));
+    const isUsb = typeSelect?.value === 'usb';
+    if (usbFields) usbFields.classList.toggle('hidden', !isUsb);
+    if (detectedMetaEl) {
+        const v = typeSelect?.value || 'bluetooth';
+        const label = v === 'usb' ? 'USB Windows' : (v === 'none' ? 'Nonaktif' : 'Bluetooth');
+        detectedMetaEl.textContent = 'Mode: ' + label;
     }
 }
-if (window.jQuery && typeSelect) {
-    jQuery(typeSelect).on('change', syncUsbFields);
-} else {
-    typeSelect?.addEventListener('change', syncUsbFields);
+
+function fillWindowsPrinterOptions(printers = [], selected = '') {
+    if (!windowsPrinterSelect || windowsPrinterSelect.tagName !== 'SELECT') return;
+    const current = selected || windowsPrinterSelect.value || '';
+    const keep = new Map();
+    keep.set('', '— Deteksi otomatis printer kasir —');
+    (printers || []).forEach((p) => {
+        const name = typeof p === 'string' ? p : p?.name;
+        if (!name) return;
+        if (/onenote|one note|pdf|fax|xps|microsoft print/i.test(name)) return;
+        keep.set(name, name);
+    });
+    if (current && !keep.has(current) && !/onenote|pdf|fax|xps/i.test(current)) {
+        keep.set(current, current);
+    }
+    windowsPrinterSelect.innerHTML = '';
+    keep.forEach((label, value) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        if (value === current) opt.selected = true;
+        windowsPrinterSelect.appendChild(opt);
+    });
 }
-syncUsbFields();
 
 function setStatus(msg, ok = false) {
     if (!statusEl) return;
@@ -444,10 +475,40 @@ function setStatus(msg, ok = false) {
     statusEl.className = ok ? 'text-xs text-emerald-600' : 'text-xs text-slate-500';
 }
 
+function setDetectedUi({ name, type, message, ok = false } = {}) {
+    if (name && detectedNameEl) detectedNameEl.textContent = name;
+    if (type && typeSelect) typeSelect.value = type;
+    syncUsbFields();
+    if (name && printerNameInput) printerNameInput.value = name;
+    if (type === 'usb' && name && windowsPrinterSelect) {
+        fillWindowsPrinterOptions(
+            Array.from(windowsPrinterSelect.options).map((o) => ({ name: o.value })).filter((p) => p.name),
+            name
+        );
+        windowsPrinterSelect.value = name;
+    }
+    if (message) setStatus(message, ok);
+}
+
 function collectDeviceSettings(bt = {}) {
+    let prev = {};
+    try {
+        prev = JSON.parse(localStorage.getItem('kasirflow_device_settings') || '{}') || {};
+    } catch (_) {
+        prev = {};
+    }
+    const type = typeSelect?.value || 'bluetooth';
+    const liveId = bt.bt_device_id || window.PosPrinter?.btDevice?.id || null;
+    const liveName = bt.bt_device_name || window.PosPrinter?.btDevice?.name || null;
+    const paired = Boolean(
+        bt.bt_paired
+        || window.PosPrinter?.btDevice
+        || (type === 'bluetooth' && (liveId || prev.bt_device_id || prev.bt_paired))
+    );
+
     return {
-        printer_type: typeSelect?.value || 'bluetooth',
-        printer_name: document.querySelector('[name="printer_name"]')?.value || '',
+        printer_type: type,
+        printer_name: printerNameInput?.value || prev.printer_name || '',
         paper_width: Number(document.querySelector('[name="paper_width"]')?.value || 58),
         receipt_header: document.querySelector('[name="receipt_header"]')?.value || '',
         receipt_footer: document.querySelector('[name="receipt_footer"]')?.value || '',
@@ -456,19 +517,20 @@ function collectDeviceSettings(bt = {}) {
         store_phone: document.querySelector('[name="store_phone"]')?.value || '',
         logo_url: document.getElementById('store-logo-preview')?.src || '',
         scanner_enabled: Boolean(document.querySelector('[name="scanner_enabled"]')?.checked),
-        bt_paired: Boolean(bt.bt_paired),
-        bt_device_id: bt.bt_device_id || null,
-        bt_device_name: bt.bt_device_name || null,
+        bt_paired: type === 'bluetooth' ? paired : false,
+        bt_device_id: type === 'bluetooth' ? (liveId || prev.bt_device_id || null) : null,
+        bt_device_name: type === 'bluetooth' ? (liveName || prev.bt_device_name || printerNameInput?.value || null) : null,
+        printer_setup_done: type !== 'none',
         extra: {
-            printer_profile: document.querySelector('[name="printer_profile"]')?.value || 'rpp02n',
+            printer_profile: document.querySelector('[name="printer_profile"]')?.value || 'auto',
             printer_baud: Number(document.querySelector('[name="printer_baud"]')?.value || 9600),
             printer_usb_mode: document.querySelector('[name="printer_usb_mode"]')?.value || 'windows',
-            windows_printer: document.getElementById('windows-printer-select')?.value || '',
+            windows_printer: windowsPrinterSelect?.value || '',
             com_port: document.getElementById('com-port-input')?.value || '',
             printer_auto_cut: Boolean(document.querySelector('[name="printer_auto_cut"]')?.checked),
             cash_drawer: Boolean(document.querySelector('[name="cash_drawer"]')?.checked),
             cash_drawer_when: document.querySelector('[name="cash_drawer_when"]')?.value || 'cash',
-            cash_drawer_pin: document.querySelector('[name="cash_drawer_pin"]')?.value || 'both',
+            cash_drawer_pin: document.querySelector('[name="cash_drawer_pin"]')?.value || '2',
             cash_drawer_windows_printer: document.getElementById('cash-drawer-windows-select')?.value || '',
             cash_drawer_com_port: (document.getElementById('cash-drawer-com-input')?.value || '').trim().toUpperCase(),
             scanner_enabled: Boolean(document.querySelector('[name="scanner_enabled"]')?.checked),
@@ -488,56 +550,60 @@ function applyFormSettings() {
 }
 
 async function pairPrinter() {
+    const preferType = typeSelect?.value || 'bluetooth';
+    if (preferType === 'none') {
+        setStatus('Printer dimatikan. Pilih Bluetooth atau USB untuk mendeteksi.');
+        return;
+    }
     applyFormSettings();
-    const type = typeSelect?.value || 'bluetooth';
+    setStatus(preferType === 'usb' ? 'Mendeteksi printer USB…' : 'Mendeteksi printer Bluetooth…');
     try {
-        if (type === 'bluetooth') {
-            await window.PosPrinter.connectBluetooth();
-            const name = window.PosPrinter.btDevice?.name || '';
-            const nameInput = document.querySelector('[name="printer_name"]');
-            if (name && nameInput && !nameInput.value.trim()) nameInput.value = name;
-            applyFormSettings();
-            window.OfflineStore?.saveDeviceSettings(collectDeviceSettings({
-                bt_paired: true,
-                bt_device_id: window.PosPrinter.btDevice?.id || null,
-                bt_device_name: name || null,
-            }));
-            setStatus('Bluetooth terpasang: ' + (name || 'OK') + '. Pengaturan disimpan offline di browser. Klik Simpan, lalu buka Kasir — tidak perlu sambungkan ulang.', true);
-            window.PosApp?.toast('Printer Bluetooth dipasangkan (offline OK)');
-        } else if (type === 'usb') {
-            await window.PosPrinter.connectUsb();
-            applyFormSettings();
-            setStatus('USB Windows siap: ' + (window.PosPrinter.windowsPrinter || 'otomatis') + '. Simpan pengaturan.', true);
-            window.PosApp?.toast('Printer USB siap');
-        } else {
-            setStatus('Printer dimatikan.');
+        const result = await window.PosPrinter.detectAndConnect({ allowPrompt: true, preferType });
+        if (!result?.ok) {
+            if (preferType === 'usb' && result?.printers) {
+                fillWindowsPrinterOptions(result.printers, windowsPrinterSelect?.value || '');
+            }
+            setStatus(result?.message || 'Printer belum terdeteksi');
+            window.PosApp?.toast(result?.message || 'Printer belum terdeteksi');
+            return;
         }
+        if (result.type === 'usb' && result.printers) {
+            fillWindowsPrinterOptions(result.printers, result.name);
+        }
+        setDetectedUi({
+            name: result.name,
+            type: result.type,
+            message: result.message + '. Klik Simpan pengaturan.',
+            ok: true,
+        });
+        applyFormSettings();
+        window.PosApp?.toast(result.message || 'Printer terdeteksi');
     } catch (e) {
-        setStatus(e.message || 'Gagal memasangkan printer');
-        window.PosApp?.toast(e.message || 'Gagal memasangkan printer');
+        setStatus(e.message || 'Gagal mendeteksi printer');
+        window.PosApp?.toast(e.message || 'Gagal mendeteksi printer');
     }
 }
 
-async function testPrint() {
+async function ensurePrinterReady() {
     applyFormSettings();
+    if (window.PosPrinter.isConnected()) return true;
+    const preferType = typeSelect?.value || 'bluetooth';
+    const result = await window.PosPrinter.detectAndConnect({ allowPrompt: true, preferType });
+    if (result?.ok) {
+        if (result.type === 'usb' && result.printers) {
+            fillWindowsPrinterOptions(result.printers, result.name);
+        }
+        setDetectedUi({ name: result.name, type: result.type, message: result.message, ok: true });
+        applyFormSettings();
+        return true;
+    }
+    throw new Error(result?.message || 'Printer belum siap');
+}
+
+async function testPrint() {
     try {
-        const type = typeSelect?.value || 'bluetooth';
-        if (!window.PosPrinter.isConnected()) {
-            if (type === 'bluetooth') {
-                const ok = await window.PosPrinter.reconnectBluetooth();
-                if (!ok) await window.PosPrinter.connectBluetooth();
-            } else if (type === 'usb') {
-                await window.PosPrinter.connectUsb();
-            }
-        }
+        await ensurePrinterReady();
         await window.PosPrinter.printTest();
-        if ((typeSelect?.value || 'bluetooth') === 'bluetooth') {
-            window.OfflineStore?.saveDeviceSettings(collectDeviceSettings({
-                bt_paired: true,
-                bt_device_id: window.PosPrinter.btDevice?.id || null,
-                bt_device_name: window.PosPrinter.btDevice?.name || null,
-            }));
-        }
         window.PosApp?.toast('Struk tes dikirim ke printer');
     } catch (e) {
         window.PosApp?.toast(e.message || 'Gagal tes cetak');
@@ -545,96 +611,109 @@ async function testPrint() {
 }
 
 async function testDrawer() {
-    applyFormSettings();
     try {
-        const type = typeSelect?.value || 'bluetooth';
-        if (!window.PosPrinter.isConnected()) {
-            if (type === 'bluetooth') {
-                const ok = await window.PosPrinter.reconnectBluetooth();
-                if (!ok) await window.PosPrinter.connectBluetooth();
-            } else if (type === 'usb') {
-                await window.PosPrinter.connectUsb();
-            }
-        }
+        await ensurePrinterReady();
         await window.PosPrinter.openCashDrawer({ force: true });
-        window.PosApp?.toast('Perintah buka laci dikirim ke printer. Jika tidak terbuka: cek kabel RJ11, daya laci, dan coba Pin 2.');
+        window.PosApp?.toast('Perintah buka laci dikirim. Jika tidak terbuka: cek kabel RJ11 dan coba Pin 5.');
     } catch (e) {
         window.PosApp?.toast(e.message || 'Gagal buka laci');
     }
 }
+
+typeSelect?.addEventListener('change', () => {
+    syncUsbFields();
+    applyFormSettings();
+    const v = typeSelect.value;
+    if (v === 'usb') {
+        setStatus('Pilih printer USB di daftar (jika ada), lalu klik Deteksi printer.');
+        loadPosPrinters();
+    } else if (v === 'bluetooth') {
+        setStatus('Nyalakan printer Bluetooth, lalu klik Deteksi printer.');
+    } else {
+        setStatus('Printer dimatikan.');
+    }
+});
+
+windowsPrinterSelect?.addEventListener('change', () => {
+    if (windowsPrinterSelect.value && printerNameInput) {
+        printerNameInput.value = windowsPrinterSelect.value;
+        if (detectedNameEl) detectedNameEl.textContent = windowsPrinterSelect.value;
+    }
+    applyFormSettings();
+});
 
 document.getElementById('btn-pair-printer')?.addEventListener('click', pairPrinter);
 document.getElementById('btn-test-print')?.addEventListener('click', testPrint);
 document.getElementById('btn-test-drawer')?.addEventListener('click', testDrawer);
 document.getElementById('btn-test-print-side')?.addEventListener('click', testPrint);
 
-(async function bootPrinterStatus() {
-    try {
-        applyFormSettings();
-        const ok = await window.PosPrinter.reconnectBluetooth();
-        if (ok) {
-            setStatus('Bluetooth tersimpan offline di browser: ' + (window.PosPrinter.btDevice?.name || 'OK') + '. Kasir memakai ini tanpa sambungkan ulang.', true);
-            return;
-        }
-        if (window.OfflineStore) {
-            const local = await window.OfflineStore.getDeviceSettings();
-            if (local?.bt_paired) {
-                setStatus('Printer sudah dipasangkan offline (' + (local.bt_device_name || local.printer_name || 'BT') + '). Siap dipakai di Kasir.', true);
-                return;
-            }
-        }
-    } catch (_) {}
-    setStatus('Belum ada printer Bluetooth tersimpan. Klik Pasangkan printer sekali, Simpan, lalu buka Kasir dengan URL yang sama.');
-})();
-
-// Saat form disimpan (submit), cache dulu ke offline sebelum request server
-document.querySelector('form')?.addEventListener('submit', () => {
-    applyFormSettings();
-});
-
-(async function loadWindowsPrinters() {
-    const selects = [
-        document.getElementById('windows-printer-select'),
-        document.getElementById('cash-drawer-windows-select'),
-    ].filter(Boolean);
-    if (!selects.length || !window.POS_CONFIG?.routes?.printerDevices) return;
+async function loadPosPrinters() {
+    if (!window.POS_CONFIG?.routes?.printerDevices) return;
     try {
         const res = await fetch(window.POS_CONFIG.routes.printerDevices, { headers: { Accept: 'application/json' } });
         const json = await res.json();
         if (!json.success) return;
-        selects.forEach((select) => {
-            const current = select.value;
-            const names = new Set();
-            const isDrawer = select.id === 'cash-drawer-windows-select';
-            select.innerHTML = isDrawer
-                ? '<option value="">— Pilih printer USB yang kabel RJ11 laci terpasang —</option>'
-                : '<option value="">Otomatis deteksi</option>';
-            const rows = (json.printers || []).filter((p) => {
-                if (!isDrawer) return true;
-                const name = String(p.name || '');
-                return !/pdf|onenote|fax|xps|microsoft/i.test(name);
-            });
-            if (isDrawer && !rows.length) {
-                const opt = document.createElement('option');
-                opt.disabled = true;
-                opt.textContent = 'Belum ada printer USB di Windows — colok printer meja + install driver';
-                select.appendChild(opt);
+        const list = json.pos_printers?.length ? json.pos_printers : [];
+        fillWindowsPrinterOptions(list, windowsPrinterSelect?.value || json.suggested?.name || '');
+        return json;
+    } catch (_) {
+        return null;
+    }
+}
+
+syncUsbFields();
+
+(async function bootPrinterStatus() {
+    try {
+        applyFormSettings();
+        const preferType = typeSelect?.value || 'bluetooth';
+        if (preferType === 'usb') {
+            await loadPosPrinters();
+        }
+        if (preferType === 'none') {
+            setStatus('Printer dimatikan di pengaturan.');
+            return;
+        }
+        // Silent detect sesuai pilihan (tanpa dialog BT jika belum pernah dipasangkan)
+        const result = await window.PosPrinter.detectAndConnect({ allowPrompt: false, preferType });
+        if (result?.ok) {
+            if (result.type === 'usb' && result.printers) {
+                fillWindowsPrinterOptions(result.printers, result.name);
             }
-            rows.forEach((p) => {
-                if (!p.name || names.has(p.name)) return;
-                names.add(p.name);
-                const opt = document.createElement('option');
-                opt.value = p.name;
-                opt.textContent = p.port ? `${p.name} (${p.port})` : p.name;
-                const saved = isDrawer
-                    ? json.saved?.cash_drawer_windows_printer
-                    : json.saved?.windows_printer;
-                if (p.name === current || p.name === saved) opt.selected = true;
-                select.appendChild(opt);
+            setDetectedUi({
+                name: result.name,
+                type: result.type,
+                message: result.message + '. Siap dipakai di Kasir setelah Simpan.',
+                ok: true,
             });
-            window.reinitSelect2?.(select);
-        });
-    } catch (_) {}
+            applyFormSettings();
+            return;
+        }
+        const local = await window.OfflineStore?.getDeviceSettings?.();
+        if (local?.printer_name || local?.bt_device_name) {
+            const t = local.printer_type === 'usb' || local.printer_type === 'bluetooth' || local.printer_type === 'none'
+                ? local.printer_type
+                : (local.bt_paired ? 'bluetooth' : preferType);
+            setDetectedUi({
+                name: local.printer_name || local.bt_device_name,
+                type: t,
+                message: 'Printer tersimpan di perangkat ini. Klik Deteksi printer jika ingin refresh.',
+                ok: true,
+            });
+            return;
+        }
+        if (preferType === 'usb') {
+            setStatus(result?.message || 'Printer USB kasir belum ditemukan. Tancapkan printer lalu klik Deteksi.');
+        } else {
+            setStatus('Nyalakan printer Bluetooth, lalu klik Deteksi printer.');
+        }
+    } catch (_) {
+        setStatus('Pilih Bluetooth atau USB, lalu klik Deteksi printer.');
+    }
 })();
+
+document.querySelector('form')?.addEventListener('submit', () => {
+    applyFormSettings();
+});
 </script>
 @endpush

@@ -22,6 +22,12 @@ class MediaController extends Controller
             abort_unless($owns || Auth::user()->isDeveloper(), 403);
         }
 
+        if (str_starts_with($path, 'purchase-invoices/')) {
+            $ownerId = Auth::user()->storeOwnerId();
+            $owns = \App\Models\Purchase::where('user_id', $ownerId)->where('supplier_invoice', $path)->exists();
+            abort_unless($owns || Auth::user()->isDeveloper(), 403);
+        }
+
         return Storage::disk('public')->response($path);
     }
 }

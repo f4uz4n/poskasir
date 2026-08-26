@@ -25,6 +25,7 @@ class Purchase extends Model
         'payment_status',
         'update_product_cost',
         'notes',
+        'supplier_invoice',
     ];
 
     protected function casts(): array

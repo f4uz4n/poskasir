@@ -53,10 +53,10 @@ class SettingController extends Controller
             'receipt_header' => ['nullable', 'string', 'max:500'],
             'receipt_footer' => ['nullable', 'string', 'max:1000'],
             'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'printer_type' => ['nullable', 'in:bluetooth,usb,none'],
+            'printer_type' => ['nullable', 'in:bluetooth,usb,none,auto'],
             'printer_name' => ['nullable', 'string', 'max:255'],
             'paper_width' => ['nullable', 'in:58,80'],
-            'printer_profile' => ['nullable', 'in:rpp02n,generic58,generic80,xprinter,epson'],
+            'printer_profile' => ['nullable', 'in:auto,rpp02n,hakpost,generic58,generic80,xprinter,gprinter,epson,star,bixolon'],
             'printer_baud' => ['nullable', 'in:9600,19200,38400,57600,115200'],
             'printer_auto_cut' => ['nullable', 'boolean'],
             'printer_usb_mode' => ['nullable', 'in:windows,serial,webusb'],
@@ -72,7 +72,7 @@ class SettingController extends Controller
         ]);
 
         $extra = is_array($user->storeSetting?->extra) ? $user->storeSetting->extra : [];
-        $extra['printer_profile'] = $data['printer_profile'] ?? 'rpp02n';
+        $extra['printer_profile'] = $data['printer_profile'] ?? 'auto';
         $extra['printer_baud'] = (int) ($data['printer_baud'] ?? 9600);
         $extra['printer_auto_cut'] = $request->boolean('printer_auto_cut');
         $extra['printer_usb_mode'] = $data['printer_usb_mode'] ?? 'windows';
@@ -80,10 +80,11 @@ class SettingController extends Controller
         $extra['com_port'] = $data['com_port'] ?? null;
         $extra['cash_drawer'] = $request->boolean('cash_drawer');
         $extra['cash_drawer_when'] = $data['cash_drawer_when'] ?? 'cash';
-        $extra['cash_drawer_pin'] = $data['cash_drawer_pin'] ?? 'both';
+        $extra['cash_drawer_pin'] = $data['cash_drawer_pin'] ?? '2';
         $extra['cash_drawer_windows_printer'] = $data['cash_drawer_windows_printer'] ?: null;
         $extra['cash_drawer_com_port'] = $data['cash_drawer_com_port'] ? strtoupper(trim($data['cash_drawer_com_port'])) : null;
         $extra['scanner_enabled'] = $request->boolean('scanner_enabled');
+        $extra['printer_setup_done'] = ($data['printer_type'] ?? 'bluetooth') !== 'none';
         unset(
             $data['printer_profile'],
             $data['printer_baud'],
@@ -101,6 +102,10 @@ class SettingController extends Controller
             $data['remove_store_logo'],
         );
         $data['extra'] = $extra;
+
+        if (($data['printer_type'] ?? null) === 'auto') {
+            $data['printer_type'] = ! empty($extra['windows_printer']) ? 'usb' : 'bluetooth';
+        }
 
         if ($user->hasFeature('kunci_stok')) {
             $data['stock_lock_enabled'] = $request->boolean('stock_lock_enabled');

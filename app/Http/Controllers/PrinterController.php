@@ -16,10 +16,12 @@ class PrinterController extends Controller
         $list = $printers->listPrinters();
         $coms = $printers->listComPorts();
         $guess = $printers->guessRppPrinter($extra['windows_printer'] ?? $settings?->printer_name);
+        $posPrinters = array_values(array_filter($list, fn ($p) => $printers->isLikelyPosPrinter($p)));
 
         return response()->json([
             'success' => true,
             'printers' => $list,
+            'pos_printers' => $posPrinters,
             'com_ports' => $coms,
             'suggested' => $guess,
             'saved' => [

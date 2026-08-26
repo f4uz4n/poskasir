@@ -32,7 +32,7 @@
                 <span id="scanner-status" class="device-badge inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">
                     Scanner: siap
                 </span>
-                <button type="button" id="btn-reconnect-printer" class="btn btn-ghost text-xs py-1.5 px-3 hidden" title="Sambungkan ulang printer">Sambungkan ulang</button>
+                <button type="button" id="btn-reconnect-printer" class="btn btn-ghost text-xs py-1.5 px-3 hidden" hidden title="Sambungkan ulang printer" style="display:none !important">Sambungkan ulang</button>
                 <span id="offline-badge" class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-medium hidden">Mode Offline</span>
             </div>
         </div>

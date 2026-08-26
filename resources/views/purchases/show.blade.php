@@ -57,5 +57,32 @@
     </div>
 </div>
 
+@if($purchase->notes || $purchase->supplier_invoice)
+<div class="card p-4 sm:p-5 mb-4 space-y-3">
+    @if($purchase->notes)
+        <div>
+            <div class="text-sm text-slate-500">Catatan</div>
+            <div class="mt-1">{{ $purchase->notes }}</div>
+        </div>
+    @endif
+    @if($purchase->supplier_invoice)
+        @php
+            $invoiceUrl = route('media.show', ['path' => $purchase->supplier_invoice]);
+            $isPdf = str_ends_with(strtolower($purchase->supplier_invoice), '.pdf');
+        @endphp
+        <div>
+            <div class="text-sm text-slate-500 mb-2">Nota supplier</div>
+            @if($isPdf)
+                <a href="{{ $invoiceUrl }}" target="_blank" class="btn btn-secondary text-sm">Lihat / unduh PDF nota</a>
+            @else
+                <a href="{{ $invoiceUrl }}" target="_blank" class="block">
+                    <img src="{{ $invoiceUrl }}" alt="Nota supplier" class="max-h-80 rounded-lg border border-slate-200 object-contain bg-slate-50">
+                </a>
+            @endif
+        </div>
+    @endif
+</div>
+@endif
+
 <a href="{{ route('purchases.index') }}" class="btn btn-ghost">Kembali</a>
 @endsection

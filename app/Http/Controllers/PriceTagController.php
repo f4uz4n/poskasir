@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Product;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -37,12 +38,35 @@ class PriceTagController extends Controller
 
     public function print(Request $request)
     {
+        $payload = $this->buildLabels($request);
+
+        return view('price-tags.print', $payload);
+    }
+
+    public function pdf(Request $request)
+    {
+        $payload = $this->buildLabels($request);
+
+        $pdf = Pdf::loadView('price-tags.pdf', $payload)
+            ->setPaper('a4', 'portrait')
+            ->setOption('isRemoteEnabled', true)
+            ->setOption('defaultFont', 'DejaVu Sans');
+
+        $filename = 'label-harga-'.now()->format('Ymd-His').'.pdf';
+
+        return $pdf->download($filename);
+    }
+
+    /**
+     * @return array{labels: list<\App\Models\Product>, storeName: string}
+     */
+    private function buildLabels(Request $request): array
+    {
         $data = $request->validate([
             'product_ids' => ['required', 'array', 'min:1'],
             'product_ids.*' => ['integer'],
             'copies' => ['nullable', 'array'],
             'copies.*' => ['nullable', 'integer', 'min:1', 'max:50'],
-            'size' => ['nullable', 'in:small,medium,large'],
         ]);
 
         $ownerId = Auth::user()->storeOwnerId();
@@ -68,18 +92,15 @@ class PriceTagController extends Controller
         }
 
         if (count($labels) === 0) {
-            return back()->with('error', 'Pilih minimal satu produk.');
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'product_ids' => 'Pilih minimal satu produk.',
+            ]);
         }
 
-        $size = $data['size'] ?? 'medium';
         $storeName = Auth::user()->storeOwner()->storeSetting?->store_name
             ?: Auth::user()->storeOwner()->store_name
             ?: 'Toko';
 
-        return view('price-tags.print', compact(
-            'labels',
-            'size',
-            'storeName'
-        ));
+        return compact('labels', 'storeName');
     }
 }

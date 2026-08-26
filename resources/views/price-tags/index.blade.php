@@ -2,7 +2,7 @@
 
 @section('title', 'Label Harga')
 @section('heading', 'Cetak Label Harga')
-@section('subheading', 'Pilih produk, atur jumlah, lalu cetak pricetag')
+@section('subheading', 'Pilih produk, atur jumlah, lalu cetak atau unduh PDF (5,5 × 3,5 cm)')
 
 @section('content')
 <form method="GET" class="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
@@ -18,18 +18,14 @@
 
 <form method="POST" action="{{ route('price-tags.print') }}" target="_blank" id="price-tag-form">
     @csrf
-    <div class="card p-4 sm:p-5 mb-4 flex flex-col sm:flex-row sm:items-end gap-3 justify-between">
-        <div class="sm:w-56">
-            <label class="text-xs text-slate-500">Ukuran label</label>
-            <select name="size" class="input mt-1">
-                <option value="small">Kompak</option>
-                <option value="medium" selected>Standar</option>
-                <option value="large">Besar</option>
-            </select>
+    <div class="card p-4 sm:p-5 mb-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+        <div class="text-sm text-slate-600">
+            Ukuran label tetap: <strong>5,5 cm × 3,5 cm</strong> (A4)
         </div>
-        <div class="flex items-center gap-3 ml-auto">
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3 ml-auto">
             <span class="text-sm text-slate-500" id="selected-count">0 dipilih</span>
-            <button type="submit" class="btn btn-primary">Cetak label</button>
+            <button type="submit" name="output" value="print" class="btn btn-secondary" formaction="{{ route('price-tags.print') }}">Cetak label</button>
+            <button type="submit" name="output" value="pdf" class="btn btn-primary" formaction="{{ route('price-tags.pdf') }}" formtarget="_self">Unduh PDF</button>
         </div>
     </div>
 

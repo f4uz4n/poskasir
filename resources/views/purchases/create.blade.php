@@ -11,7 +11,7 @@
     <a href="{{ route('products.index') }}" class="btn btn-primary">Kelola produk</a>
 </div>
 @else
-<form method="POST" action="{{ route('purchases.store') }}" id="purchase-form">
+<form method="POST" action="{{ route('purchases.store') }}" id="purchase-form" enctype="multipart/form-data">
     @csrf
     <div class="card p-4 sm:p-5 mb-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
@@ -59,6 +59,14 @@
         <div class="sm:col-span-2">
             <label class="text-xs text-slate-500">Catatan</label>
             <input name="notes" class="input mt-1" value="{{ old('notes') }}" placeholder="Opsional">
+        </div>
+        <div class="sm:col-span-2 lg:col-span-4">
+            <label class="text-xs text-slate-500">Nota supplier</label>
+            <input type="file" name="supplier_invoice" accept="image/jpeg,image/png,image/webp,application/pdf" class="input mt-1">
+            <p class="text-xs text-slate-400 mt-1">Foto/scan nota atau PDF (opsional, maks. 5 MB)</p>
+            @error('supplier_invoice')
+                <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+            @enderror
         </div>
         <label class="flex items-center gap-2 text-sm sm:col-span-2">
             <input type="checkbox" name="update_product_cost" value="1" checked>

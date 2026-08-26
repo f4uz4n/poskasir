@@ -61,30 +61,59 @@ class WindowsPrinterService
         return array_values(array_unique($ports));
     }
 
+    public function isVirtualPrinter(array $printer): bool
+    {
+        $blob = strtolower(trim(($printer['name'] ?? '').' '.($printer['driver'] ?? '').' '.($printer['port'] ?? '')));
+
+        return (bool) preg_match(
+            '/onenote|one note|microsoft print to pdf|microsoft XPS|fax|send to|adobe pdf|pdfcreator|pdf24|cutepdf|bullzip|doPDF|foxit pdf|nitro pdf|virtual|redirect|redirected|ts\d+|shr\d+|nul:|file:|portprompt|wpd|document writer/i',
+            $blob
+        );
+    }
+
+    public function isLikelyPosPrinter(array $printer): bool
+    {
+        if ($this->isVirtualPrinter($printer)) {
+            return false;
+        }
+
+        $blob = strtolower(trim(($printer['name'] ?? '').' '.($printer['driver'] ?? '').' '.($printer['port'] ?? '')));
+
+        if (preg_match('/^usb\d+/i', (string) ($printer['port'] ?? ''))) {
+            return true;
+        }
+
+        return (bool) preg_match(
+            '/pos|thermal|receipt|epson|tm-|xprinter|xp-|gprinter|gp-|rongta|rpp|goojprt|hakpost|hprt|hpc|star|sm-|bixolon|srp-|citizen|zebra|tsc|gainscha|munbyn|printer\s*58|printer\s*80|generic\s*\/\s*text|usb printing support/i',
+            $blob
+        );
+    }
+
     public function guessRppPrinter(?string $preferred = null): ?array
     {
         $printers = $this->listPrinters();
         if ($preferred) {
             foreach ($printers as $printer) {
-                if (strcasecmp($printer['name'], $preferred) === 0) {
+                if (strcasecmp($printer['name'], $preferred) === 0 && ! $this->isVirtualPrinter($printer)) {
                     return $printer;
                 }
             }
         }
 
         foreach ($printers as $printer) {
-            if (preg_match('/rpp|rongta|pos58|thermal|receipt|usb printing/i', $printer['name'].' '.($printer['driver'] ?? ''))) {
+            if ($this->isLikelyPosPrinter($printer)) {
                 return $printer;
             }
         }
 
         foreach ($printers as $printer) {
-            if (preg_match('/^USB\d+/i', (string) $printer['port'])) {
+            if (preg_match('/^USB\d+/i', (string) $printer['port']) && ! $this->isVirtualPrinter($printer)) {
                 return $printer;
             }
         }
 
-        return $printers[0] ?? null;
+        // Jangan pernah fallback ke OneNote/PDF
+        return null;
     }
 
     public function printRaw(string $bytes, ?string $printerName = null, ?string $comPort = null, int $baud = 9600): array

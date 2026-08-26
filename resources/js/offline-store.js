@@ -110,6 +110,27 @@ export const OfflineStore = {
                 ...(partial.extra || {}),
             },
         };
+
+        // Jangan hapus token pairing Bluetooth hanya karena field kosong di partial
+        if (!next.bt_device_id && prev.bt_device_id && partial.bt_device_id !== '') {
+            next.bt_device_id = prev.bt_device_id;
+        }
+        if (!next.bt_device_name && prev.bt_device_name) {
+            next.bt_device_name = prev.bt_device_name;
+        }
+        if (partial.printer_type === 'usb' || partial.printer_type === 'none') {
+            // pindah dari Bluetooth → boleh clear pairing
+            if (partial.bt_paired === false) next.bt_paired = false;
+        } else if (!next.bt_paired && prev.bt_paired && partial.bt_paired !== false) {
+            next.bt_paired = true;
+        }
+
+        if (partial.printer_type || partial.printer_name || partial.extra?.windows_printer) {
+            next.printer_setup_done = true;
+        } else if (prev.printer_setup_done) {
+            next.printer_setup_done = true;
+        }
+
         writeLocalDeviceSettings(next);
         setMeta('device_settings', next).catch(() => {});
         return next;
@@ -125,33 +146,60 @@ export const OfflineStore = {
         }
     },
 
+    /**
+     * Gabungkan pengaturan server (sumber kebenaran setelah Simpan)
+     * dengan token pairing Bluetooth lokal (hanya ada di browser).
+     */
     mergeSettings(serverSettings = {}, localDevice = null) {
         const local = localDevice || readLocalDeviceSettings() || {};
-        if (!local || !Object.keys(local).length) return serverSettings || {};
+        const server = serverSettings || {};
+        const hasLocal = local && Object.keys(local).length > 0;
+
+        if (!hasLocal) {
+            return {
+                ...server,
+                scanner_enabled: server.scanner_enabled ?? server.extra?.scanner_enabled ?? true,
+                bt_paired: false,
+                bt_device_id: null,
+                bt_device_name: null,
+                printer_setup_done: Boolean(server.printer_type && server.printer_type !== 'none'),
+            };
+        }
+
+        const printerType = server.printer_type || local.printer_type || null;
+        const setupDone = Boolean(
+            local.printer_setup_done
+            || server.extra?.printer_setup_done
+            || local.extra?.printer_setup_done
+            || (printerType && printerType !== 'none' && (server.printer_name || server.extra?.windows_printer || local.bt_paired || local.bt_device_id))
+            || (printerType === 'usb' || printerType === 'bluetooth')
+        );
 
         return {
-            ...(serverSettings || {}),
-            printer_type: local.printer_type ?? serverSettings?.printer_type,
-            printer_name: local.printer_name ?? serverSettings?.printer_name,
-            paper_width: local.paper_width ?? serverSettings?.paper_width,
-            receipt_header: local.receipt_header ?? serverSettings?.receipt_header,
-            receipt_footer: local.receipt_footer ?? serverSettings?.receipt_footer,
-            store_name: local.store_name ?? serverSettings?.store_name,
-            store_address: local.store_address ?? serverSettings?.store_address,
-            store_phone: local.store_phone ?? serverSettings?.store_phone,
-            logo_url: local.logo_url ?? serverSettings?.logo_url ?? null,
-            tax_percent: serverSettings?.tax_percent ?? local.tax_percent,
+            ...server,
+            printer_type: printerType,
+            printer_name: server.printer_name || local.printer_name || '',
+            paper_width: server.paper_width ?? local.paper_width ?? 58,
+            receipt_header: server.receipt_header ?? local.receipt_header ?? '',
+            receipt_footer: server.receipt_footer ?? local.receipt_footer ?? '',
+            store_name: server.store_name ?? local.store_name ?? '',
+            store_address: server.store_address ?? local.store_address ?? '',
+            store_phone: server.store_phone ?? local.store_phone ?? '',
+            logo_url: server.logo_url ?? local.logo_url ?? null,
+            tax_percent: server.tax_percent ?? local.tax_percent ?? 0,
             scanner_enabled: local.scanner_enabled
                 ?? local.extra?.scanner_enabled
-                ?? serverSettings?.scanner_enabled
-                ?? serverSettings?.extra?.scanner_enabled
+                ?? server.scanner_enabled
+                ?? server.extra?.scanner_enabled
                 ?? true,
-            bt_paired: local.bt_paired ?? false,
+            bt_paired: Boolean(local.bt_paired || local.bt_device_id),
             bt_device_id: local.bt_device_id || null,
-            bt_device_name: local.bt_device_name || null,
+            bt_device_name: local.bt_device_name || local.printer_name || null,
+            printer_setup_done: setupDone,
             extra: {
-                ...(serverSettings?.extra || {}),
                 ...(local.extra || {}),
+                ...(server.extra || {}),
+                printer_setup_done: setupDone || Boolean(server.extra?.printer_setup_done || local.extra?.printer_setup_done),
             },
         };
     },

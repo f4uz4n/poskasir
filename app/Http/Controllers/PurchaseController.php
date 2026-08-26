@@ -65,6 +65,7 @@ class PurchaseController extends Controller
             'payment_method' => ['required', 'in:cash,transfer,qris,other,credit'],
             'update_product_cost' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string'],
+            'supplier_invoice' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
@@ -131,6 +132,11 @@ class PurchaseController extends Controller
                 }
             }
 
+            $invoicePath = null;
+            if ($request->hasFile('supplier_invoice')) {
+                $invoicePath = $request->file('supplier_invoice')->store('purchase-invoices', 'public');
+            }
+
             $purchase = Purchase::create([
                 'user_id' => $ownerId,
                 'created_by' => $actor->id,
@@ -148,6 +154,7 @@ class PurchaseController extends Controller
                 'payment_status' => $paymentStatus,
                 'update_product_cost' => $request->boolean('update_product_cost', true),
                 'notes' => $data['notes'] ?? null,
+                'supplier_invoice' => $invoicePath,
             ]);
 
             foreach ($rows as $row) {

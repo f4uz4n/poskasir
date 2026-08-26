@@ -38,7 +38,12 @@
                         <td class="py-3 pr-2 font-mono text-xs">{{ $p->code }}</td>
                         <td class="py-3 pr-2">
                             <div class="font-medium">{{ $p->supplier_name }}</div>
-                            <div class="text-xs text-slate-400">{{ $p->items_count }} item · {{ $p->creator?->name }}</div>
+                            <div class="text-xs text-slate-400">
+                                {{ $p->items_count }} item · {{ $p->creator?->name }}
+                                @if($p->supplier_invoice)
+                                    · <span class="text-brand-700 font-medium">ada nota</span>
+                                @endif
+                            </div>
                         </td>
                         <td class="py-3 pr-2">{{ $p->purchased_at->format('d/m/Y') }}</td>
                         <td class="py-3 pr-2 text-right font-semibold">Rp {{ number_format($p->total, 0, ',', '.') }}</td>

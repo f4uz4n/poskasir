@@ -102,6 +102,7 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/price-tags', [PriceTagController::class, 'index'])->name('price-tags.index');
         Route::post('/price-tags/print', [PriceTagController::class, 'print'])->name('price-tags.print');
+        Route::post('/price-tags/pdf', [PriceTagController::class, 'pdf'])->name('price-tags.pdf');
 
         Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
         Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
