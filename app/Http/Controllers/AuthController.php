@@ -30,7 +30,8 @@ class AuthController extends Controller
 
         $recaptcha->verifyOrFail($request);
 
-        if (Auth::attempt($credentials, $request->boolean('remember'))) {
+        // Selalu "ingat perangkat ini" agar kasir tidak minta login ulang di device yang sama
+        if (Auth::attempt($credentials, true)) {
             $user = Auth::user();
 
             if (! $user->is_active) {
@@ -42,6 +43,9 @@ class AuthController extends Controller
             }
 
             $request->session()->regenerate();
+
+            // Login di perangkat lain → sesi perangkat lama keluar (harus login lagi)
+            Auth::logoutOtherDevices($credentials['password']);
 
             if ($user->isDeveloper()) {
                 return redirect()->intended(route('developer.dashboard'));
@@ -107,7 +111,7 @@ class AuthController extends Controller
             ]);
         }
 
-        Auth::login($user);
+        Auth::login($user, true);
 
         return redirect()->route('dashboard')->with('success', 'Akun berhasil dibuat. Anda memakai paket Gratis (1 akun).');
     }

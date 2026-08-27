@@ -35,9 +35,9 @@
                     <label class="block text-sm font-medium mb-1">Password</label>
                     <input type="password" name="password" class="input" required>
                 </div>
-                <label class="flex items-center gap-2 text-sm text-slate-600">
-                    <input type="checkbox" name="remember"> Ingat saya
-                </label>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Perangkat ini akan tetap masuk. Jika Anda login di perangkat lain, perangkat ini akan diminta masuk ulang.
+                </p>
                 <x-recaptcha />
                 <button class="btn btn-primary w-full">Masuk</button>
             </form>
