@@ -36,7 +36,7 @@
                     <input type="password" name="password" class="input" required>
                 </div>
                 <p class="text-xs text-slate-500 leading-relaxed">
-                    Perangkat ini akan tetap masuk. Jika Anda login di perangkat lain, perangkat ini akan diminta masuk ulang.
+                    Perangkat ini akan tetap masuk otomatis. Batas jumlah perangkat login bisa diatur di menu Pengaturan.
                 </p>
                 <x-recaptcha />
                 <button class="btn btn-primary w-full">Masuk</button>

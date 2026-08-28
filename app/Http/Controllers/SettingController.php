@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\LoginDeviceService;
 use App\Services\OfflinePrecacheService;
 use App\Services\StoreDataWipeService;
 use Illuminate\Http\Request;
@@ -12,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 class SettingController extends Controller
 {
-    public function index(StoreDataWipeService $wipe)
+    public function index(StoreDataWipeService $wipe, LoginDeviceService $loginDevices)
     {
         $user = Auth::user();
         $owner = $user->storeOwner();
@@ -26,6 +27,10 @@ class SettingController extends Controller
         $dataSummary = $user->isStoreOwner()
             ? $wipe->summary((int) $owner->id)
             : null;
+        $loginDeviceMax = (int) ($settings?->max_login_devices ?? 1);
+        $activeLoginSessions = $user->isStoreOwner()
+            ? $loginDevices->activeSessionsFor($user)
+            : [];
 
         return view('settings.index', compact(
             'settings',
@@ -36,6 +41,8 @@ class SettingController extends Controller
             'canApiSync',
             'remoteUrl',
             'dataSummary',
+            'loginDeviceMax',
+            'activeLoginSessions',
         ));
     }
 
@@ -69,6 +76,7 @@ class SettingController extends Controller
             'cash_drawer_com_port' => ['nullable', 'string', 'max:20'],
             'scanner_enabled' => ['nullable', 'boolean'],
             'stock_lock_enabled' => ['nullable', 'boolean'],
+            'max_login_devices' => ['nullable', 'integer', 'min:0', 'max:20'],
         ]);
 
         $extra = is_array($user->storeSetting?->extra) ? $user->storeSetting->extra : [];
@@ -133,6 +141,12 @@ class SettingController extends Controller
             $data['stock_lock_enabled'] = $request->boolean('stock_lock_enabled');
         } else {
             unset($data['stock_lock_enabled']);
+        }
+
+        if ($request->has('max_login_devices')) {
+            $data['max_login_devices'] = max(0, min(20, (int) $request->input('max_login_devices')));
+        } else {
+            unset($data['max_login_devices']);
         }
 
         $settings = $user->storeSetting;

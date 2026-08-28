@@ -6,6 +6,7 @@ use App\Models\StoreSetting;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\LoginDeviceService;
 use App\Services\RecaptchaService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -21,7 +22,7 @@ class AuthController extends Controller
         ]);
     }
 
-    public function login(Request $request, RecaptchaService $recaptcha)
+    public function login(Request $request, RecaptchaService $recaptcha, LoginDeviceService $loginDevices)
     {
         $credentials = $request->validate([
             'email' => ['required', 'email'],
@@ -30,7 +31,7 @@ class AuthController extends Controller
 
         $recaptcha->verifyOrFail($request);
 
-        // Selalu "ingat perangkat ini" agar kasir tidak minta login ulang di device yang sama
+        // Selalu "ingat perangkat ini" agar tidak minta login ulang di device yang sama
         if (Auth::attempt($credentials, true)) {
             $user = Auth::user();
 
@@ -44,8 +45,11 @@ class AuthController extends Controller
 
             $request->session()->regenerate();
 
-            // Login di perangkat lain → sesi perangkat lama keluar (harus login lagi)
-            Auth::logoutOtherDevices($credentials['password']);
+            $loginDevices->enforceAfterLogin(
+                $user,
+                $credentials['password'],
+                $request->session()->getId()
+            );
 
             if ($user->isDeveloper()) {
                 return redirect()->intended(route('developer.dashboard'));

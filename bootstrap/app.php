@@ -12,9 +12,6 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Wajib agar logoutOtherDevices mengusir sesi di perangkat lain
-        $middleware->authenticateSessions();
-
         $middleware->alias([
             'subscribed' => \App\Http\Middleware\EnsureSubscribed::class,
             'feature' => \App\Http\Middleware\EnsureFeature::class,

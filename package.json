@@ -19,6 +19,7 @@
         "@point-of-sale/webbluetooth-receipt-printer": "^2.0.0",
         "@point-of-sale/webserial-receipt-printer": "^2.0.0",
         "@point-of-sale/webusb-receipt-printer": "^2.0.0",
+        "@zxing/library": "^0.21.3",
         "esc-pos-encoder": "^3.0.0"
     }
 }

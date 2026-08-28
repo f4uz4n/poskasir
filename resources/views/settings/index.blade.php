@@ -71,6 +71,47 @@
 
             <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
                 <div>
+                    <div class="font-semibold text-sm">Login perangkat</div>
+                    <p class="text-xs text-slate-500 mt-1">
+                        Atur berapa perangkat yang boleh login bersamaan untuk <strong>akun pemilik</strong> dan <strong>kasir</strong>.
+                        Perangkat yang sama tetap masuk otomatis tanpa login ulang.
+                    </p>
+                </div>
+                @php
+                    $maxDevices = (int) old('max_login_devices', $settings->max_login_devices ?? 1);
+                @endphp
+                <div>
+                    <label class="text-sm font-medium">Maksimal perangkat login</label>
+                    <select name="max_login_devices" class="input mt-1" data-no-select2>
+                        <option value="1" @selected($maxDevices === 1)>1 — login baru keluarkan perangkat lama</option>
+                        <option value="2" @selected($maxDevices === 2)>2 perangkat</option>
+                        <option value="3" @selected($maxDevices === 3)>3 perangkat</option>
+                        <option value="5" @selected($maxDevices === 5)>5 perangkat</option>
+                        <option value="10" @selected($maxDevices === 10)>10 perangkat</option>
+                        <option value="0" @selected($maxDevices === 0)>Tanpa batas</option>
+                    </select>
+                    @error('max_login_devices')
+                        <p class="text-sm text-red-600 mt-1">{{ $message }}</p>
+                    @enderror
+                </div>
+                @if(!empty($activeLoginSessions))
+                    <div class="text-xs text-slate-600 space-y-1">
+                        <div class="font-medium">Perangkat aktif (akun Anda): {{ count($activeLoginSessions) }}</div>
+                        <ul class="space-y-1 max-h-28 overflow-y-auto">
+                            @foreach($activeLoginSessions as $sess)
+                                <li class="rounded-lg bg-white border border-slate-200 px-2 py-1.5">
+                                    <span class="font-medium">{{ $sess['ip'] ?: 'IP tidak diketahui' }}</span>
+                                    · {{ \Illuminate\Support\Str::limit($sess['agent'] ?: 'Perangkat', 48) }}
+                                    · {{ \Carbon\Carbon::createFromTimestamp($sess['last_activity'])->diffForHumans() }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div>
                     <div class="font-semibold text-sm">Printer & laci uang</div>
                     <p class="text-xs text-slate-500 mt-1">
                         Pilih <strong>Bluetooth</strong> atau <strong>USB</strong>, lalu klik <strong>Deteksi printer</strong>.

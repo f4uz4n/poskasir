@@ -160,8 +160,14 @@
             <div class="product-modal-grid two-col">
                 <div class="sm:col-span-2">
                     <label class="text-xs font-medium text-slate-600">Barcode <span class="text-red-500">*</span></label>
-                    <input name="barcode" id="product-barcode" class="input mt-1" placeholder="Scan barcode produk" required maxlength="100" inputmode="none" autocomplete="off" data-no-keyboard readonly>
-                    <p class="text-[11px] text-slate-400 mt-1">Wajib diisi. Gunakan scanner — keyboard tidak tampil di field ini.</p>
+                    <div class="flex gap-2 mt-1">
+                        <input name="barcode" id="product-barcode" class="input flex-1 min-w-0" placeholder="Scan barcode produk" required maxlength="100" inputmode="none" autocomplete="off" data-no-keyboard readonly>
+                        <button type="button" id="btn-scan-barcode-camera" class="btn btn-secondary shrink-0 whitespace-nowrap px-3" title="Scan dengan kamera">
+                            <span class="hidden sm:inline">Scan kamera</span>
+                            <span class="sm:hidden">📷</span>
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-1">Wajib diisi. Pakai scanner USB/Bluetooth atau tombol <strong>Scan kamera</strong>.</p>
                 </div>
                 <div class="sm:col-span-2">
                     <label class="text-xs font-medium text-slate-600">Nama produk</label>
@@ -240,6 +246,25 @@
         </form>
 
         <form id="product-delete-form" method="POST" class="hidden">@csrf @method('DELETE')</form>
+    </div>
+</div>
+
+{{-- Modal scan barcode kamera --}}
+<div id="camera-barcode-modal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal-panel p-4 sm:p-5 w-full max-w-md">
+        <div class="flex items-start justify-between gap-3 mb-3">
+            <div>
+                <h3 class="text-lg font-bold">Scan barcode</h3>
+                <p class="text-xs text-slate-500">Arahkan kamera ke barcode produk</p>
+            </div>
+            <button type="button" id="btn-close-camera-barcode" class="btn btn-ghost px-3 py-1 text-sm shrink-0">✕</button>
+        </div>
+        <div class="rounded-xl overflow-hidden bg-black aspect-[4/3] relative">
+            <video id="camera-barcode-video" class="w-full h-full object-cover" playsinline muted autoplay></video>
+            <div class="pointer-events-none absolute inset-6 border-2 border-white/70 rounded-lg"></div>
+        </div>
+        <p id="camera-barcode-status" class="text-xs text-slate-500 mt-3 text-center min-h-[1.25rem]">Menyiapkan kamera…</p>
+        <button type="button" id="btn-close-camera-barcode-bottom" class="btn btn-cancel w-full mt-3">Batal</button>
     </div>
 </div>
 
@@ -410,6 +435,32 @@
     document.getElementById('btn-delete-product')?.addEventListener('click', () => {
         if (confirm('Hapus produk ini?')) deleteForm.submit();
     });
+
+    function fillProductBarcode(code) {
+        const input = document.getElementById('product-barcode');
+        if (!input || !code) return;
+        input.value = String(code).trim();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('product-name')?.focus();
+    }
+
+    async function scanBarcodeWithCamera() {
+        if (!window.PosApp?.openCameraBarcodeScanner) {
+            alert('Fitur scan kamera belum dimuat. Refresh halaman (Ctrl+F5).');
+            return;
+        }
+        try {
+            await window.PosApp.openCameraBarcodeScanner({
+                onScan: (code) => {
+                    fillProductBarcode(code);
+                    window.PosApp?.toast?.('Barcode: ' + code);
+                },
+                onError: (msg) => window.PosApp?.toast?.(msg),
+            });
+        } catch (_) {}
+    }
+
+    document.getElementById('btn-scan-barcode-camera')?.addEventListener('click', scanBarcodeWithCamera);
 
     bindToggles(form);
     if (productModal?.classList.contains('open')) {

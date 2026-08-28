@@ -2,6 +2,7 @@ import './bootstrap';
 import OfflineStore from './offline-store';
 import printer from './printer';
 import { initPos } from './pos';
+import cameraBarcodeScanner, { openCameraBarcodeScanner, initCameraBarcodeScanner } from './camera-barcode-scanner';
 
 function toast(message) {
     const el = document.getElementById('toast');
@@ -307,6 +308,8 @@ window.PosApp = {
     prepareOfflineApp,
     updateInstallUi,
     OfflineStore,
+    openCameraBarcodeScanner,
+    cameraBarcodeScanner,
 };
 
 window.PosPrinter = printer;
@@ -400,5 +403,6 @@ document.addEventListener('DOMContentLoaded', () => {
     registerServiceWorker().catch(() => {});
 
     initNoKeyboardFields();
+    initCameraBarcodeScanner();
     initPos();
 });
