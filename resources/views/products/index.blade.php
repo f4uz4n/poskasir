@@ -255,15 +255,16 @@
         <div class="flex items-start justify-between gap-3 mb-3">
             <div>
                 <h3 class="text-lg font-bold">Scan barcode</h3>
-                <p class="text-xs text-slate-500">Arahkan kamera ke barcode produk</p>
+                <p class="text-xs text-slate-500">Arahkan barcode produk ke dalam kotak putih</p>
             </div>
             <button type="button" id="btn-close-camera-barcode" class="btn btn-ghost px-3 py-1 text-sm shrink-0">✕</button>
         </div>
         <div class="rounded-xl overflow-hidden bg-black aspect-[4/3] relative">
-            <video id="camera-barcode-video" class="w-full h-full object-cover" playsinline muted autoplay></video>
-            <div class="pointer-events-none absolute inset-6 border-2 border-white/70 rounded-lg"></div>
+            <video id="camera-barcode-video" class="w-full h-full object-cover" playsinline muted autoplay webkit-playsinline></video>
+            <div class="pointer-events-none absolute inset-x-4 top-1/2 -translate-y-1/2 h-[38%] border-2 border-white/80 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"></div>
         </div>
         <p id="camera-barcode-status" class="text-xs text-slate-500 mt-3 text-center min-h-[1.25rem]">Menyiapkan kamera…</p>
+        <p class="text-[11px] text-slate-400 text-center mt-1">Tips: dekatkan barcode, hindari silau, tahan stabil 1–2 detik</p>
         <button type="button" id="btn-close-camera-barcode-bottom" class="btn btn-cancel w-full mt-3">Batal</button>
     </div>
 </div>
