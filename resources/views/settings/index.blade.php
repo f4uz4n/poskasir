@@ -138,6 +138,7 @@
                 <input type="hidden" name="printer_baud" value="{{ old('printer_baud', $settings->extra['printer_baud'] ?? 9600) }}">
                 <input type="hidden" name="printer_usb_mode" value="{{ old('printer_usb_mode', $settings->extra['printer_usb_mode'] ?? 'windows') }}">
                 <input type="hidden" name="com_port" id="com-port-input" value="{{ old('com_port', $settings->extra['com_port'] ?? '') }}">
+                <input type="hidden" name="usb_port" id="usb-port-input" value="{{ old('usb_port', $settings->extra['usb_port'] ?? '') }}">
 
                 <div id="usb-windows-fields" class="{{ $ptype === 'usb' ? '' : 'hidden' }} space-y-2">
                     <div>
@@ -152,8 +153,9 @@
                             @endif
                         </select>
                         <p class="text-xs text-slate-500 mt-1">
-                            Pilih printer Windows ATAU port COM. Jika daftar kosong: tancapkan USB, lalu di Windows
-                            tambah printer <strong>Generic / Text Only</strong> (Devices and Printers → Add printer).
+                            Pilih printer Windows ATAU port COM. Untuk <strong>GP-58MB / Gprinter</strong>: jika cetak gagal,
+                            tambah printer <strong>Generic / Text Only</strong> pada port USB yang sama, atau pilih port COM di daftar.
+                            Tutup Gainscha/Gprinter Utility saat cetak dari KasirFlow.
                             Banyak thermal (RPP/Hakpost) hanya tampil sebagai COM — pilih COM-nya.
                         </p>
                     </div>
@@ -502,17 +504,21 @@ function fillWindowsPrinterOptions(printers = [], selected = '') {
         if (!name) return;
         if (/onenote|one note|pdf|fax|xps|microsoft print/i.test(name)) return;
         const label = p?.label
-            || (/^COM\d+$/i.test(name) ? `${name} (USB/Serial)` : name);
+            || (/^COM\d+$/i.test(name) ? `${name} (USB/Serial)` : `${name}${p?.port ? ` (${p.port})` : ''}`);
         keep.set(name, label);
+        if (p?.port) keep.set(`__port__${name}`, p.port);
     });
     if (current && !keep.has(current) && !/onenote|pdf|fax|xps/i.test(current)) {
         keep.set(current, /^COM\d+$/i.test(current) ? `${current} (USB/Serial)` : current);
     }
     windowsPrinterSelect.innerHTML = '';
     keep.forEach((label, value) => {
+        if (String(value).startsWith('__port__')) return;
         const opt = document.createElement('option');
         opt.value = value;
         opt.textContent = label;
+        const port = keep.get(`__port__${value}`);
+        if (port) opt.dataset.port = port;
         if (value === current) opt.selected = true;
         windowsPrinterSelect.appendChild(opt);
     });
@@ -579,6 +585,7 @@ function collectDeviceSettings(bt = {}) {
                 const v = windowsPrinterSelect?.value || document.getElementById('com-port-input')?.value || '';
                 return /^COM\d+$/i.test(v) ? v.toUpperCase() : (document.getElementById('com-port-input')?.value || '');
             })(),
+            usb_port: (document.getElementById('usb-port-input')?.value || '').trim().toUpperCase(),
             printer_auto_cut: Boolean(document.querySelector('[name="printer_auto_cut"]')?.checked),
             cash_drawer: Boolean(document.querySelector('[name="cash_drawer"]')?.checked),
             cash_drawer_when: document.querySelector('[name="cash_drawer_when"]')?.value || 'cash',
@@ -735,6 +742,12 @@ windowsPrinterSelect?.addEventListener('change', () => {
         printerNameInput.value = windowsPrinterSelect.value;
         if (detectedNameEl) detectedNameEl.textContent = windowsPrinterSelect.value;
     }
+    const selected = windowsPrinterSelect?.selectedOptions?.[0];
+    const port = selected?.dataset?.port || '';
+    if (/^USB\d+$/i.test(port)) {
+        const usbInput = document.getElementById('usb-port-input');
+        if (usbInput) usbInput.value = port.toUpperCase();
+    }
     applyFormSettings();
 });
 
@@ -763,6 +776,10 @@ async function loadPosPrinters() {
             uniq.push(p);
         });
         fillWindowsPrinterOptions(uniq, windowsPrinterSelect?.value || json.suggested?.name || json.saved?.com_port || '');
+        if (json.suggested?.port && /^USB\d+$/i.test(json.suggested.port)) {
+            const usbInput = document.getElementById('usb-port-input');
+            if (usbInput) usbInput.value = String(json.suggested.port).toUpperCase();
+        }
         return json;
     } catch (_) {
         return null;

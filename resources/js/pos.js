@@ -71,9 +71,12 @@ export function initPos() {
     let lastTransaction = null;
     let orderType = 'dine_in';
     let printerReady = false;
+    let productViewMode = localStorage.getItem('poskasir_product_view') === 'list' ? 'list' : 'grid';
 
     const els = {
         grid: document.getElementById('product-grid'),
+        btnViewGrid: document.getElementById('btn-pos-view-grid'),
+        btnViewList: document.getElementById('btn-pos-view-list'),
         cartList: document.getElementById('cart-list'),
         subtotal: document.getElementById('cart-subtotal'),
         tax: document.getElementById('cart-tax'),
@@ -350,6 +353,46 @@ export function initPos() {
         els.change.textContent = formatMoney(t.change);
     }
 
+    function setProductViewMode(mode) {
+        productViewMode = mode === 'list' ? 'list' : 'grid';
+        localStorage.setItem('poskasir_product_view', productViewMode);
+
+        if (els.grid) {
+            els.grid.classList.toggle('pos-view-list', productViewMode === 'list');
+            els.grid.classList.toggle('pos-view-grid', productViewMode === 'grid');
+            if (productViewMode === 'list') {
+                els.grid.classList.remove('grid', 'grid-cols-2', 'md:grid-cols-3', 'xl:grid-cols-4', 'gap-3');
+            } else {
+                els.grid.classList.add('grid', 'grid-cols-2', 'md:grid-cols-3', 'xl:grid-cols-4', 'gap-3');
+            }
+        }
+
+        els.btnViewGrid?.classList.toggle('active', productViewMode === 'grid');
+        els.btnViewList?.classList.toggle('active', productViewMode === 'list');
+        renderProducts();
+    }
+
+    function renderProductMeta(p) {
+        const meta = [];
+        if (p.track_stock !== false) meta.push(`Stok ${p.stock}`);
+        if (p.has_expiry && p.expired_at) {
+            const exp = new Date(p.expired_at);
+            meta.push(`Exp ${exp.toLocaleDateString('id-ID')}`);
+        }
+        return meta.join(' · ') || 'Tanpa stok';
+    }
+
+    function renderProductImage(p, { list = false } = {}) {
+        const listCls = list ? 'h-12 w-12 shrink-0 rounded-lg' : 'w-full h-24 rounded-lg mb-2';
+        if (p.image_url) {
+            return `<img src="${p.image_url}" alt="" class="${listCls} object-cover bg-slate-100">`;
+        }
+        if (list) {
+            return `<div class="${listCls} bg-slate-100 grid place-items-center text-slate-400 text-[10px]">No foto</div>`;
+        }
+        return `<div class="w-full h-24 rounded-lg mb-2 bg-slate-100 grid place-items-center text-slate-400 text-xs">Tanpa foto</div>`;
+    }
+
     function renderProducts() {
         const q = (els.search.value || '').toLowerCase();
         const cat = window.jQuery && els.category ? jQuery(els.category).val() : els.category?.value;
@@ -359,26 +402,28 @@ export function initPos() {
             return matchQ && matchC && p.is_active !== false;
         });
 
-        els.grid.innerHTML = filtered.map((p) => {
-            const meta = [];
-            if (p.track_stock !== false) meta.push(`Stok ${p.stock}`);
-            if (p.has_expiry && p.expired_at) {
-                const exp = new Date(p.expired_at);
-                meta.push(`Exp ${exp.toLocaleDateString('id-ID')}`);
-            }
-            const img = p.image_url
-                ? `<img src="${p.image_url}" alt="" class="w-full h-24 object-cover rounded-lg mb-2 bg-slate-100">`
-                : `<div class="w-full h-24 rounded-lg mb-2 bg-slate-100 grid place-items-center text-slate-400 text-xs">Tanpa foto</div>`;
+        if (productViewMode === 'list') {
+            els.grid.innerHTML = filtered.map((p) => `
+                <button type="button" class="product-tile product-tile-list card p-2.5 text-left w-full flex items-center gap-3" data-id="${p.id}">
+                    ${renderProductImage(p, { list: true })}
+                    <div class="min-w-0 flex-1">
+                        <div class="font-semibold text-sm leading-snug truncate">${p.name}</div>
+                        <div class="text-xs text-slate-500 truncate">${p.category?.name || '-'} · ${renderProductMeta(p)}</div>
+                    </div>
+                    <div class="text-brand-700 font-bold text-sm whitespace-nowrap shrink-0">${formatMoney(p.price)}</div>
+                </button>
+            `).join('') || '<p class="text-slate-400 text-center py-10">Produk tidak ditemukan</p>';
+            return;
+        }
 
-            return `
+        els.grid.innerHTML = filtered.map((p) => `
             <button type="button" class="product-tile card p-3 text-left" data-id="${p.id}">
-                ${img}
+                ${renderProductImage(p)}
                 <div class="font-semibold text-sm leading-snug">${p.name}</div>
-                <div class="text-xs text-slate-500 mt-1">${p.category?.name || '-'} · ${meta.join(' · ') || 'Tanpa stok'}</div>
+                <div class="text-xs text-slate-500 mt-1">${p.category?.name || '-'} · ${renderProductMeta(p)}</div>
                 <div class="text-brand-700 font-bold mt-2">${formatMoney(p.price)}</div>
             </button>
-        `;
-        }).join('') || '<p class="text-slate-400 col-span-full text-center py-10">Produk tidak ditemukan</p>';
+        `).join('') || '<p class="text-slate-400 col-span-full text-center py-10">Produk tidak ditemukan</p>';
     }
 
     function addProduct(product) {
@@ -671,6 +716,15 @@ export function initPos() {
         };
     }
 
+    function isTodayTransaction(trx) {
+        if (!trx?.sold_at) return false;
+        const d = new Date(trx.sold_at);
+        const now = new Date();
+        return d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+    }
+
     async function loadHistory() {
         if (!historyList) return;
         historyList.innerHTML = '<p class="text-slate-400 text-center py-8">Memuat...</p>';
@@ -690,8 +744,10 @@ export function initPos() {
             try { rows = await OfflineStore.getAllTransactions(); } catch (_) {}
         }
 
+        rows = rows.filter(isTodayTransaction);
+
         if (!rows.length) {
-            historyList.innerHTML = '<p class="text-slate-400 text-center py-8">Belum ada transaksi.</p>';
+            historyList.innerHTML = '<p class="text-slate-400 text-center py-8">Belum ada transaksi hari ini.</p>';
             return;
         }
 
@@ -801,7 +857,9 @@ export function initPos() {
     }
 
     setOrderType('dine_in');
-    renderProducts();
+    setProductViewMode(productViewMode);
+    els.btnViewGrid?.addEventListener('click', () => setProductViewMode('grid'));
+    els.btnViewList?.addEventListener('click', () => setProductViewMode('list'));
     renderCart();
 
     (async function autoConnectPrinter() {

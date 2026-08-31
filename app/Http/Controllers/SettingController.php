@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\LoginDeviceService;
 use App\Services\OfflinePrecacheService;
 use App\Services\StoreDataWipeService;
+use App\Services\WindowsPrinterService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -63,7 +64,7 @@ class SettingController extends Controller
             'printer_type' => ['nullable', 'in:bluetooth,usb,none,auto'],
             'printer_name' => ['nullable', 'string', 'max:255'],
             'paper_width' => ['nullable', 'in:58,80'],
-            'printer_profile' => ['nullable', 'in:auto,rpp02n,hakpost,generic58,generic80,xprinter,gprinter,epson,star,bixolon'],
+            'printer_profile' => ['nullable', 'in:auto,rpp02n,hakpost,generic58,gp58mb,generic80,xprinter,gprinter,epson,star,bixolon'],
             'printer_baud' => ['nullable', 'in:9600,19200,38400,57600,115200'],
             'printer_auto_cut' => ['nullable', 'boolean'],
             'printer_usb_mode' => ['nullable', 'in:windows,serial,webusb'],
@@ -111,6 +112,12 @@ class SettingController extends Controller
             }
             if (! empty($data['com_port'])) {
                 $extra['com_port'] = strtoupper(trim((string) $data['com_port']));
+            }
+            if (! empty($extra['windows_printer'])) {
+                $printerMeta = app(WindowsPrinterService::class)->findPrinter($extra['windows_printer']);
+                if ($printerMeta && preg_match('/^USB\d+/i', (string) ($printerMeta['port'] ?? ''), $m)) {
+                    $extra['usb_port'] = strtoupper($m[1]);
+                }
             }
             $extra['printer_usb_mode'] = $extra['printer_usb_mode'] ?: 'windows';
         }
@@ -230,6 +237,10 @@ class SettingController extends Controller
                 $name = $target;
                 if ($com !== '') {
                     $extra['com_port'] = $com;
+                }
+                $printerMeta = app(WindowsPrinterService::class)->findPrinter($target);
+                if ($printerMeta && preg_match('/^USB\d+/i', (string) ($printerMeta['port'] ?? ''), $m)) {
+                    $extra['usb_port'] = strtoupper($m[1]);
                 }
             }
             $extra['printer_usb_mode'] = $data['printer_usb_mode'] ?? 'windows';

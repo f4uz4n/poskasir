@@ -49,6 +49,7 @@ class PrinterController extends Controller
                 'windows_printer' => $extra['windows_printer'] ?? $settings?->printer_name,
                 'cash_drawer_windows_printer' => $extra['cash_drawer_windows_printer'] ?? null,
                 'com_port' => $extra['com_port'] ?? null,
+                'usb_port' => $extra['usb_port'] ?? null,
                 'usb_mode' => $extra['printer_usb_mode'] ?? 'windows',
                 'baud' => $extra['printer_baud'] ?? 9600,
             ],
@@ -61,6 +62,7 @@ class PrinterController extends Controller
             'bytes' => ['required', 'string'],
             'printer_name' => ['nullable', 'string', 'max:255'],
             'com_port' => ['nullable', 'string', 'max:20'],
+            'usb_port' => ['nullable', 'string', 'max:20'],
         ]);
 
         $settings = Auth::user()->storeOwner()->storeSetting;
@@ -81,10 +83,11 @@ class PrinterController extends Controller
             $name = null;
         }
 
+        $usb = $data['usb_port'] ?: ($extra['usb_port'] ?? null);
         $baud = (int) ($extra['printer_baud'] ?? 9600);
 
         try {
-            $result = $printers->printRaw($raw, $name, $com, $baud);
+            $result = $printers->printRaw($raw, $name, $com, $baud, $usb);
 
             return response()->json([
                 'success' => true,

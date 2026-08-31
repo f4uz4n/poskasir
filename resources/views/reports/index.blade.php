@@ -15,7 +15,7 @@
     <a href="{{ route('stock-opname.index') }}" class="btn btn-secondary">Stock Opname</a>
 </div>
 
-<form method="GET" class="card p-4 mb-4 grid sm:grid-cols-4 gap-3">
+<form method="GET" class="card p-4 mb-4 grid sm:grid-cols-4 gap-3" id="report-filter-form">
     <div>
         <label class="text-xs text-slate-500">Dari tanggal</label>
         <input type="date" name="from" value="{{ $from }}" class="input mt-1">
@@ -32,8 +32,10 @@
             <option value="takeaway" @selected($orderType === 'takeaway')>Take Away</option>
         </select>
     </div>
-    <div class="flex items-end">
-        <button class="btn btn-primary w-full">Filter</button>
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
+        <button type="submit" class="btn btn-primary flex-1">Filter</button>
+        <a href="{{ route('reports.export.excel', request()->query()) }}" class="btn btn-secondary flex-1 text-center whitespace-nowrap">Unduh Excel</a>
+        <a href="{{ route('reports.export.pdf', request()->query()) }}" class="btn btn-secondary flex-1 text-center whitespace-nowrap">Unduh PDF</a>
     </div>
 </form>
 

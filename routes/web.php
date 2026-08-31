@@ -114,6 +114,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/transactions/{transaction}/void', [TransactionController::class, 'void'])->name('transactions.void');
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+        Route::get('/reports/export/excel', [ReportController::class, 'exportExcel'])->name('reports.export.excel');
+        Route::get('/reports/export/pdf', [ReportController::class, 'exportPdf'])->name('reports.export.pdf');
         Route::get('/reports/stock', [StockReportController::class, 'index'])->name('reports.stock');
         Route::get('/reports/profit-loss', [ProfitLossController::class, 'index'])->name('reports.profit-loss');
         Route::get('/expiry', [ExpiryMonitorController::class, 'index'])->name('expiry.index');

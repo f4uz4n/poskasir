@@ -34,10 +34,30 @@
                 </span>
                 <button type="button" id="btn-reconnect-printer" class="btn btn-secondary text-xs py-1.5 px-3 hidden" title="Sambungkan ulang printer">Sambungkan ulang</button>
                 <span id="offline-badge" class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-medium hidden">Mode Offline</span>
+                <div class="ml-auto flex items-center gap-0.5 rounded-lg border border-slate-200 p-0.5 bg-slate-50">
+                    <button type="button" id="btn-pos-view-grid" class="pos-view-btn active p-2 rounded-md" title="Tampilan grid dengan foto" aria-label="Tampilan grid">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                            <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+                        </svg>
+                    </button>
+                    <button type="button" id="btn-pos-view-list" class="pos-view-btn p-2 rounded-md" title="Tampilan list nama barang" aria-label="Tampilan list">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <line x1="8" y1="6" x2="21" y2="6"></line>
+                            <line x1="8" y1="12" x2="21" y2="12"></line>
+                            <line x1="8" y1="18" x2="21" y2="18"></line>
+                            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div id="product-grid" class="pos-product-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 pr-1 min-h-0"></div>
+        <div id="product-grid" class="pos-product-grid pos-view-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 pr-1 min-h-0"></div>
     </div>
 
     <div class="pos-cart-panel card p-4">
@@ -133,7 +153,7 @@
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <div>
                 <h3 class="text-lg font-bold">Riwayat transaksi</h3>
-                <p class="text-xs text-slate-500">Cetak ulang struk dari penjualan terakhir</p>
+                <p class="text-xs text-slate-500">Cetak ulang struk — transaksi hari ini saja</p>
             </div>
             <button type="button" id="btn-close-history" class="btn-icon" title="Tutup" aria-label="Tutup">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

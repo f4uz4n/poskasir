@@ -18,6 +18,9 @@ class TransactionController extends Controller
         $user = Auth::user();
         $ownerId = $user->storeOwnerId();
 
+        $dateFrom = $request->get('date_from', now()->toDateString());
+        $dateTo = $request->get('date_to', now()->toDateString());
+
         $transactions = Transaction::where('user_id', $ownerId)
             ->with(['items', 'cashier'])
             ->when($request->get('q'), function ($q, $search) {
@@ -28,10 +31,13 @@ class TransactionController extends Controller
                 });
             })
             ->when($request->get('order_type'), fn ($q, $type) => $q->where('order_type', $type))
+            ->when($dateFrom, fn ($q) => $q->whereDate('sold_at', '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->whereDate('sold_at', '<=', $dateTo))
             ->latest('sold_at')
-            ->paginate(20);
+            ->paginate(20)
+            ->withQueryString();
 
-        return view('transactions.index', compact('transactions'));
+        return view('transactions.index', compact('transactions', 'dateFrom', 'dateTo'));
     }
 
     public function store(Request $request)
@@ -198,9 +204,11 @@ class TransactionController extends Controller
     {
         $ownerId = Auth::user()->storeOwnerId();
         $limit = min(50, max(5, (int) $request->get('limit', 30)));
+        $today = now()->toDateString();
 
         $transactions = Transaction::where('user_id', $ownerId)
             ->with('items')
+            ->whereDate('sold_at', $today)
             ->latest('sold_at')
             ->limit($limit)
             ->get();

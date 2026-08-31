@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Category;
 use App\Models\Product;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -15,6 +16,9 @@ class PriceTagController extends Controller
         $ownerId = Auth::user()->storeOwnerId();
         $q = $request->get('q');
         $categoryId = $request->get('category_id');
+        $dateFrom = $request->get('date_from');
+        $dateTo = $request->get('date_to');
+        $sort = $request->get('sort', 'name_asc');
 
         $products = Product::where('user_id', $ownerId)
             ->where('is_active', true)
@@ -27,13 +31,23 @@ class PriceTagController extends Controller
                 });
             })
             ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
-            ->orderBy('name')
+            ->when($dateFrom, fn ($query) => $query->whereDate('created_at', '>=', $dateFrom))
+            ->when($dateTo, fn ($query) => $query->whereDate('created_at', '<=', $dateTo))
+            ->tap(fn (Builder $query) => $this->applySort($query, $sort))
             ->paginate(40)
             ->withQueryString();
 
         $categories = Category::where('user_id', $ownerId)->orderBy('name')->get();
 
-        return view('price-tags.index', compact('products', 'categories', 'q', 'categoryId'));
+        return view('price-tags.index', compact(
+            'products',
+            'categories',
+            'q',
+            'categoryId',
+            'dateFrom',
+            'dateTo',
+            'sort',
+        ));
     }
 
     public function print(Request $request)
@@ -67,25 +81,31 @@ class PriceTagController extends Controller
             'product_ids.*' => ['integer'],
             'copies' => ['nullable', 'array'],
             'copies.*' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'sort' => ['nullable', 'in:name_asc,name_desc,date_asc,date_desc'],
         ]);
 
         $ownerId = Auth::user()->storeOwnerId();
         $ids = $data['product_ids'];
+        $sort = $data['sort'] ?? 'name_asc';
 
         $products = Product::where('user_id', $ownerId)
             ->whereIn('id', $ids)
             ->with('category')
-            ->orderBy('name')
             ->get()
             ->keyBy('id');
 
-        $labels = [];
+        $ordered = [];
         foreach ($ids as $id) {
-            $product = $products->get($id);
-            if (! $product) {
-                continue;
+            if ($products->has($id)) {
+                $ordered[] = $products->get($id);
             }
-            $copies = max(1, (int) ($data['copies'][$id] ?? 1));
+        }
+
+        $ordered = $this->sortProducts(collect($ordered), $sort)->values()->all();
+
+        $labels = [];
+        foreach ($ordered as $product) {
+            $copies = max(1, (int) ($data['copies'][$product->id] ?? 1));
             for ($i = 0; $i < $copies; $i++) {
                 $labels[] = $product;
             }
@@ -102,5 +122,37 @@ class PriceTagController extends Controller
             ?: 'Toko';
 
         return compact('labels', 'storeName');
+    }
+
+    private function applySort(Builder $query, string $sort): void
+    {
+        match ($sort) {
+            'name_desc' => $query->orderByDesc('name'),
+            'date_asc' => $query->orderBy('created_at')->orderBy('name'),
+            'date_desc' => $query->orderByDesc('created_at')->orderBy('name'),
+            default => $query->orderBy('name'),
+        };
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Product>  $products
+     * @return \Illuminate\Support\Collection<int, Product>
+     */
+    private function sortProducts($products, string $sort)
+    {
+        return match ($sort) {
+            'name_desc' => $products->sortByDesc('name', SORT_NATURAL | SORT_FLAG_CASE)->values(),
+            'date_asc' => $products->sort(function ($a, $b) {
+                $cmp = ($a->created_at?->timestamp ?? 0) <=> ($b->created_at?->timestamp ?? 0);
+
+                return $cmp !== 0 ? $cmp : strnatcasecmp($a->name, $b->name);
+            })->values(),
+            'date_desc' => $products->sort(function ($a, $b) {
+                $cmp = ($b->created_at?->timestamp ?? 0) <=> ($a->created_at?->timestamp ?? 0);
+
+                return $cmp !== 0 ? $cmp : strnatcasecmp($a->name, $b->name);
+            })->values(),
+            default => $products->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)->values(),
+        };
     }
 }

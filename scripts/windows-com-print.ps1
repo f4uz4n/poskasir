@@ -27,6 +27,7 @@ function Write-ViaCopy {
 if ($PortName -match '^(USB|LPT)\d+') {
     try {
         Write-ViaCopy -Port $PortName -Path $FilePath
+        Start-Sleep -Milliseconds 120
         Write-Output "OK"
         exit 0
     } catch {

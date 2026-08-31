@@ -1,4 +1,4 @@
-const CACHE_NAME = 'poskasir-v6';
+const CACHE_NAME = 'poskasir-v7';
 const BASE = new URL('./', self.location).pathname.replace(/\/?$/, '/');
 
 const PRECACHE = [

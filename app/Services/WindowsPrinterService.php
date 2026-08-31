@@ -110,9 +110,107 @@ class WindowsPrinterService
         }
 
         return (bool) preg_match(
-            '/pos|thermal|receipt|epson|tm-|xprinter|xp-|gprinter|gp-|rongta|rpp|goojprt|hakpost|hprt|hpc|star|sm-|bixolon|srp-|citizen|zebra|tsc|gainscha|munbyn|printer\s*58|printer\s*80|generic\s*\/\s*text|usb printing support/i',
+            '/pos|thermal|receipt|escpos|esc\s*pos|epson|tm-|xprinter|xp-|gprinter|gp-|gp58|58mb|gainscha|rongta|rpp|goojprt|hakpost|hprt|hpc|star|sm-|bixolon|srp-|citizen|zebra|tsc|gainscha|munbyn|imin|sunmi|bluetooth printer|printer\s*58|printer\s*80|58mm|80mm|generic\s*\/\s*text|usb printing support/i',
             $blob
         );
+    }
+
+    public function findPrinter(?string $name): ?array
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return null;
+        }
+
+        foreach ($this->listPrinters() as $printer) {
+            if (strcasecmp($printer['name'], $name) === 0) {
+                return $printer;
+            }
+        }
+
+        return null;
+    }
+
+    public function isGenericTextDriver(array $printer): bool
+    {
+        $blob = strtolower(trim(($printer['driver'] ?? '').' '.($printer['name'] ?? '')));
+
+        return (bool) preg_match(
+            '/generic\s*\/?\s*text|text\s*only|raw\s*only|esc\s*pos|pos\s*58|pos\s*80|receipt\s*only|standard\s*tcp/i',
+            $blob
+        );
+    }
+
+    /** Driver resmi Gprinter/Gainscha sering menerima job RAW tanpa mencetak ESC/POS — kirim langsung ke port USB/COM. */
+    public function prefersDirectPort(array $printer): bool
+    {
+        if ($this->isVirtualPrinter($printer)) {
+            return false;
+        }
+
+        $blob = strtolower(trim(($printer['name'] ?? '').' '.($printer['driver'] ?? '').' '.($printer['port'] ?? '')));
+
+        if ($this->isGenericTextDriver($printer)) {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/gprinter|gainscha|gp-|gp58|gp80|gs-|pos58|pos80|58mb|80mm|receipt\s*printer|thermal\s*receipt|escpos|esc\s*pos/i',
+            $blob
+        );
+    }
+
+    /** @return array<int,string> */
+    protected function collectPortTargets(?array $printer, ?string $comPort = null, ?string $usbPort = null): array
+    {
+        $ports = [];
+
+        foreach ([$comPort, $usbPort] as $candidate) {
+            $candidate = strtoupper(trim((string) $candidate));
+            if ($candidate !== '' && preg_match('/^(COM\d+|USB\d+|LPT\d+)$/i', $candidate)) {
+                $ports[] = $candidate;
+            }
+        }
+
+        if ($printer && ! empty($printer['port'])) {
+            $port = strtoupper(trim((string) $printer['port']));
+            if (preg_match('/^(COM\d+|USB\d+|LPT\d+)$/i', $port)) {
+                $ports[] = $port;
+            }
+        }
+
+        return array_values(array_unique($ports));
+    }
+
+    /** @return array{ok:bool,via:string,target:string}|null */
+    protected function tryPortTargets(array $ports, string $bytes, int $baud, array &$errors): ?array
+    {
+        foreach ($ports as $port) {
+            try {
+                $this->writePort($port, $bytes, $baud);
+
+                return ['ok' => true, 'via' => 'port-direct', 'target' => strtoupper($port)];
+            } catch (Throwable $e) {
+                $errors[] = $port.': '.$e->getMessage();
+            }
+
+            if (preg_match('/^COM\d+$/i', $port)) {
+                foreach ([115200, 57600, 38400, 19200] as $altBaud) {
+                    if ($altBaud === $baud) {
+                        continue;
+                    }
+                    try {
+                        $this->writeCom($port, $bytes, $altBaud);
+
+                        return ['ok' => true, 'via' => 'com-baud-'.$altBaud, 'target' => strtoupper($port)];
+                    } catch (Throwable $e2) {
+                        $errors[] = $port.'@'.$altBaud.': '.$e2->getMessage();
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     public function guessRppPrinter(?string $preferred = null): ?array
@@ -141,19 +239,43 @@ class WindowsPrinterService
         return null;
     }
 
-    public function printRaw(string $bytes, ?string $printerName = null, ?string $comPort = null, int $baud = 9600): array
+    public function printRaw(string $bytes, ?string $printerName = null, ?string $comPort = null, int $baud = 9600, ?string $usbPort = null): array
     {
         $errors = [];
         $explicit = $printerName ? trim($printerName) : '';
         $com = $comPort ? strtoupper(trim($comPort)) : null;
+        $usb = $usbPort ? strtoupper(trim($usbPort)) : null;
 
         // Nama "COMx" yang tersimpan sebagai printer_name
         if ($explicit !== '' && preg_match('/^COM\d+$/i', $explicit)) {
             $com = strtoupper($explicit);
             $explicit = '';
         }
+        if ($explicit !== '' && preg_match('/^USB\d+$/i', $explicit)) {
+            $usb = strtoupper($explicit);
+            $explicit = '';
+        }
 
-        // 1) Utamakan Windows spooler (Generic/Text) jika ada nama printer nyata
+        $meta = $explicit !== '' ? $this->findPrinter($explicit) : null;
+        $portTargets = $this->collectPortTargets($meta, $com, $usb);
+
+        // 1) Driver Gprinter/Gainscha/GP-58 — kirim langsung ke port USB/COM (paling andal)
+        if ($meta && $this->prefersDirectPort($meta) && $portTargets !== []) {
+            $direct = $this->tryPortTargets($portTargets, $bytes, $baud, $errors);
+            if ($direct) {
+                return $direct;
+            }
+        }
+
+        // 2) Port COM/USB eksplisit (virtual serial)
+        if ($portTargets !== []) {
+            $direct = $this->tryPortTargets($portTargets, $bytes, $baud, $errors);
+            if ($direct) {
+                return $direct;
+            }
+        }
+
+        // 3) Windows spooler RAW — cocok untuk Generic / Text Only
         if ($explicit !== '' && ! $this->isVirtualPrinter(['name' => $explicit])) {
             try {
                 $this->writeWinspool($explicit, $bytes);
@@ -170,34 +292,29 @@ class WindowsPrinterService
             } catch (Throwable $e) {
                 $errors[] = 'WindowsPrintConnector '.$explicit.': '.$e->getMessage();
             }
-        }
 
-        // 2) Port COM (banyak RPP/Hakpost tampil sebagai USB-Serial)
-        if ($com) {
-            try {
-                $this->writeCom($com, $bytes, $baud);
+            // Fallback port dari printer Windows (GP-58MB sering gagal lewat spooler)
+            if ($meta && ! empty($meta['port']) && preg_match('/^(USB\d+|COM\d+)/i', (string) $meta['port'], $m)) {
+                try {
+                    $this->writePort($m[1], $bytes, $baud);
 
-                return ['ok' => true, 'via' => 'com', 'target' => $com];
-            } catch (Throwable $e) {
-                $errors[] = $com.': '.$e->getMessage();
-                // Coba baud alternatif umum thermal
-                foreach ([115200, 57600, 38400, 19200] as $altBaud) {
-                    if ($altBaud === $baud) {
-                        continue;
-                    }
-                    try {
-                        $this->writeCom($com, $bytes, $altBaud);
-
-                        return ['ok' => true, 'via' => 'com-baud-'.$altBaud, 'target' => $com];
-                    } catch (Throwable $e2) {
-                        $errors[] = $com.'@'.$altBaud.': '.$e2->getMessage();
-                    }
+                    return ['ok' => true, 'via' => 'port-fallback', 'target' => strtoupper($m[1])];
+                } catch (Throwable $e) {
+                    $errors[] = 'Port '.$m[1].': '.$e->getMessage();
                 }
             }
         }
 
         $target = $this->guessRppPrinter($explicit !== '' ? $explicit : null);
         if ($target) {
+            $guessPorts = $this->collectPortTargets($target, $com, $usb);
+            if ($this->prefersDirectPort($target) && $guessPorts !== []) {
+                $direct = $this->tryPortTargets($guessPorts, $bytes, $baud, $errors);
+                if ($direct) {
+                    return $direct;
+                }
+            }
+
             try {
                 $this->writeWinspool($target['name'], $bytes);
 
@@ -214,19 +331,16 @@ class WindowsPrinterService
                 $errors[] = 'WindowsPrintConnector: '.$e->getMessage();
             }
 
-            if (! empty($target['port']) && preg_match('/^(USB\d+|COM\d+)/i', (string) $target['port'], $m)) {
-                try {
-                    $this->writePort($m[1], $bytes, $baud);
-
-                    return ['ok' => true, 'via' => 'port', 'target' => strtoupper($m[1])];
-                } catch (Throwable $e) {
-                    $errors[] = 'Port '.$m[1].': '.$e->getMessage();
+            if ($guessPorts !== []) {
+                $direct = $this->tryPortTargets($guessPorts, $bytes, $baud, $errors);
+                if ($direct) {
+                    return $direct;
                 }
             }
         }
 
         // Hanya coba COM tersimpan / suggested — jangan scan semua COM (bisa hang)
-        if (! $com) {
+        if ($com === null && $usb === null) {
             $available = $this->listComPorts();
             if (count($available) === 1) {
                 try {
@@ -239,8 +353,11 @@ class WindowsPrinterService
             }
         }
 
-        foreach (range(1, 4) as $n) {
+        foreach (range(1, 8) as $n) {
             $port = sprintf('USB%03d', $n);
+            if (in_array($port, $portTargets, true)) {
+                continue;
+            }
             try {
                 $this->writePort($port, $bytes, $baud);
 
@@ -250,10 +367,10 @@ class WindowsPrinterService
             }
         }
 
-        $hint = 'Gagal cetak USB. Pasang printer, di Windows instal sebagai Generic/Text Only (Devices & Printers), '
-            .'lalu di Pengaturan pilih printer itu ATAU port COM, Simpan, Tes cetak. ';
+        $hint = 'Gagal cetak USB (GP-58MB/Gprinter). Coba: (1) Control Panel → Devices and Printers → tambah printer '
+            .'Generic/Text Only pada port USB yang sama, ATAU (2) pilih port COM di Pengaturan, lalu Tes cetak. ';
         if (stripos(implode(' ', $errors), 'access') !== false || stripos(implode(' ', $errors), 'denied') !== false) {
-            $hint .= 'Port COM sedang dipakai driver lain — tutup aplikasi lain yang memakai printer, atau pakai nama printer Windows (bukan COM). ';
+            $hint .= 'Port sedang dipakai driver lain — tutup aplikasi printer/Gainscha Utility, atau pakai Generic/Text Only. ';
         }
 
         throw new \RuntimeException($hint.implode(' | ', array_slice($errors, 0, 3)));

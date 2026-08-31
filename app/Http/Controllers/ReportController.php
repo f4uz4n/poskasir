@@ -4,16 +4,74 @@ namespace App\Http\Controllers;
 
 use App\Models\Transaction;
 use App\Models\TransactionItem;
+use App\Services\SalesReportExcelExport;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
     public function index(Request $request)
     {
-        $user = Auth::user();
-        $ownerId = $user->storeOwnerId();
+        $payload = $this->buildReportPayload($request);
+        $transactions = (clone $payload['baseQuery'])
+            ->with('items')
+            ->latest('sold_at')
+            ->paginate(20)
+            ->withQueryString();
+
+        return view('reports.index', [
+            ...$payload,
+            'transactions' => $transactions,
+        ]);
+    }
+
+    public function exportExcel(Request $request): StreamedResponse
+    {
+        $payload = $this->buildReportPayload($request);
+        $storeName = Auth::user()->storeOwner()->store_name ?? 'Toko';
+        $exporter = new SalesReportExcelExport($payload, $storeName);
+
+        return response()->streamDownload(
+            fn () => print($exporter->build()),
+            $exporter->filename(),
+            ['Content-Type' => $exporter->contentType()],
+        );
+    }
+
+    public function exportPdf(Request $request)
+    {
+        $payload = $this->buildReportPayload($request);
+        $storeName = Auth::user()->storeOwner()->store_name ?? 'Toko';
+
+        $pdf = Pdf::loadView('reports.pdf-sales', [
+            ...$payload,
+            'storeName' => $storeName,
+        ])->setPaper('a4', 'portrait');
+
+        $filename = 'laporan-penjualan-'.$payload['from'].'-'.$payload['to'].'.pdf';
+
+        return $pdf->download($filename);
+    }
+
+    /**
+     * @return array{
+     *     from: string,
+     *     to: string,
+     *     orderType: ?string,
+     *     summary: array<string, mixed>,
+     *     daily: \Illuminate\Support\Collection,
+     *     topProducts: \Illuminate\Support\Collection,
+     *     byPayment: \Illuminate\Support\Collection,
+     *     allTransactions: \Illuminate\Database\Eloquent\Collection,
+     *     baseQuery: \Illuminate\Database\Eloquent\Builder
+     * }
+     */
+    private function buildReportPayload(Request $request): array
+    {
+        $ownerId = Auth::user()->storeOwnerId();
 
         $from = $request->get('from', now()->startOfMonth()->toDateString());
         $to = $request->get('to', now()->toDateString());
@@ -111,21 +169,10 @@ class ReportController extends Controller
             ->groupBy('payment_method')
             ->get();
 
-        $transactions = (clone $baseQuery)
-            ->with('items')
+        $allTransactions = (clone $baseQuery)
             ->latest('sold_at')
-            ->paginate(20)
-            ->withQueryString();
+            ->get();
 
-        return view('reports.index', compact(
-            'from',
-            'to',
-            'orderType',
-            'summary',
-            'daily',
-            'topProducts',
-            'byPayment',
-            'transactions'
-        ));
+        return compact('from', 'to', 'orderType', 'summary', 'daily', 'topProducts', 'byPayment', 'allTransactions', 'baseQuery');
     }
 }

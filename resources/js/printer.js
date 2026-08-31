@@ -3,7 +3,7 @@ import OfflineStore from './offline-store';
 
 const STORAGE_BT = 'kasirflow_bt_printer';
 
-/** UUID BLE yang dipakai printer kasir 58/80mm, termasuk Rongta RPP02N. */
+/** UUID BLE printer thermal 58/80mm (Rongta, Xprinter, Epson, Star, dll). */
 const BLE_SERVICES = [
     'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Rongta / RPP02N / Goojprt / MTP
     '000018f0-0000-1000-8000-00805f9b34fb', // Feasycom / POS generic
@@ -14,8 +14,13 @@ const BLE_SERVICES = [
     '0000ae30-0000-1000-8000-00805f9b34fb',
     '0000ffb0-0000-1000-8000-00805f9b34fb',
     '0000ff80-0000-1000-8000-00805f9b34fb',
+    '0000fd00-0000-1000-8000-00805f9b34fb', // Generic BLE thermal
+    '0000fee7-0000-1000-8000-00805f9b34fb', // Telink / OEM
+    '0000ab00-0000-1000-8000-00805f9b34fb',
     '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC / Epson TM-P
     '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART
+    '0000fee0-0000-1000-8000-00805f9b34fb',
+    '0000ff20-0000-1000-8000-00805f9b34fb',
 ];
 
 const BLE_WRITE_CHARS = [
@@ -27,6 +32,10 @@ const BLE_WRITE_CHARS = [
     '0000ae01-0000-1000-8000-00805f9b34fb',
     '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
     '49535343-8841-43f4-a8d4-ecbe34729bb3',
+    '0000fee1-0000-1000-8000-00805f9b34fb',
+    '0000fd02-0000-1000-8000-00805f9b34fb',
+    '0000ab01-0000-1000-8000-00805f9b34fb',
+    '0000ff12-0000-1000-8000-00805f9b34fb',
 ];
 
 const PROFILES = {
@@ -34,6 +43,7 @@ const PROFILES = {
     rpp02n: { chunkSize: 20, chunkDelay: 40, autoCut: false, paper: 58, baud: 9600, mapping: 'youku' },
     hakpost: { chunkSize: 20, chunkDelay: 30, autoCut: false, paper: 58, baud: 9600, mapping: 'youku' },
     generic58: { chunkSize: 20, chunkDelay: 30, autoCut: false, paper: 58, baud: 9600, mapping: 'pos-5890' },
+    gp58mb: { chunkSize: 20, chunkDelay: 30, autoCut: false, paper: 58, baud: 9600, mapping: 'pos-5890' },
     generic80: { chunkSize: 20, chunkDelay: 20, autoCut: true, paper: 80, baud: 115200, mapping: 'xprinter' },
     xprinter: { chunkSize: 20, chunkDelay: 20, autoCut: true, paper: 80, baud: 9600, mapping: 'xprinter' },
     gprinter: { chunkSize: 20, chunkDelay: 25, autoCut: true, paper: 80, baud: 9600, mapping: 'xprinter' },
@@ -63,15 +73,31 @@ function columnsFor(paper) {
 }
 
 function detectProfileKey(name = '', paperWidth = 58) {
-    const n = String(name || '');
-    if (/hakpost|hprt|hpc/i.test(n)) return 'hakpost';
-    if (/rpp|rongta|goojprt|mtp-/i.test(n)) return 'rpp02n';
-    if (/xprinter|xp-/i.test(n)) return 'xprinter';
-    if (/gprinter|gp-/i.test(n)) return 'gprinter';
-    if (/epson|tm-/i.test(n)) return 'epson';
-    if (/star|sm-/i.test(n)) return 'star';
+    const n = String(name || '').toLowerCase();
+    if (/hakpost|hprt|hpc|sprt/i.test(n)) return 'hakpost';
+    if (/gp-?58|gp58|58mb|gainscha.*58/i.test(n)) return 'gp58mb';
+    if (/rpp|rongta|goojprt|mtp-|zjiang|zhongyi|inner|printer058/i.test(n)) return 'rpp02n';
+    if (/xprinter|xp-|zj-/i.test(n)) return 'xprinter';
+    if (/gprinter|gp-|gainscha|gs-/i.test(n)) return Number(paperWidth) === 80 ? 'gprinter' : 'gp58mb';
+    if (/epson|tm-|tm\d/i.test(n)) return 'epson';
+    if (/star|sm-|tsp/i.test(n)) return 'star';
     if (/bixolon|srp-/i.test(n)) return 'bixolon';
+    if (/citizen|ct-/i.test(n)) return 'epson';
+    if (/tsc|ta200|te200/i.test(n)) return 'generic80';
+    if (/zebra|zd4|zpl/i.test(n)) return 'generic80';
+    if (/munbyn|mUNBYN|imin|sunmi|bluetooth printer|thermal|pos-|58mm|80mm|receipt/i.test(n)) {
+        return Number(paperWidth) === 80 ? 'generic80' : 'generic58';
+    }
     return Number(paperWidth) === 80 ? 'generic80' : 'generic58';
+}
+
+function btChunkSize(profile = {}, characteristic = null) {
+    const key = profile.key || 'generic58';
+    if (/rpp|rongta|goojprt|hakpost/i.test(key)) return 20;
+    if (characteristic?.properties?.writeWithoutResponse) {
+        return profile.paper === 80 ? 100 : 80;
+    }
+    return profile.chunkSize || 20;
 }
 
 function resolveProfile(settings = {}, deviceName = '') {
@@ -261,6 +287,7 @@ class PosPrinter {
         this.usbEndpoint = null;
         this.windowsPrinter = null;
         this.comPort = null;
+        this.usbPort = null;
         this.type = null;
         this.profile = PROFILES.rpp02n;
         this.settings = {};
@@ -538,7 +565,7 @@ class PosPrinter {
 
         const characteristic = await this.discoverWriteCharacteristic(server);
         if (!characteristic) {
-            throw new Error('Karakteristik tulis tidak ditemukan. Pastikan printer RPP02N dalam mode BLE (bukan Classic SPP saja).');
+            throw new Error('Printer Bluetooth tidak mendukung cetak. Pastikan printer thermal BLE (bukan Classic SPP saja) dan sudah dipasangkan.');
         }
 
         this.btCharacteristic = characteristic;
@@ -595,20 +622,26 @@ class PosPrinter {
                 }
 
                 const isCom = /^COM\d+$/i.test(thermal.name);
+                const usbPort = this.resolveUsbPortFromDevice(thermal);
                 this.settings = {
                     ...this.settings,
                     printer_type: 'usb',
                     printer_name: thermal.name,
+                    paper_width: this.settings.paper_width || 58,
                     printer_setup_done: true,
                     extra: {
                         ...(this.settings.extra || {}),
                         windows_printer: isCom ? null : thermal.name,
                         com_port: isCom ? thermal.name.toUpperCase() : (this.settings.extra?.com_port || null),
+                        usb_port: usbPort,
                         printer_usb_mode: 'windows',
                         printer_profile: this.settings.extra?.printer_profile || 'auto',
                     },
                 };
                 this.setSettings(this.settings);
+                this.windowsPrinter = isCom ? null : thermal.name;
+                this.comPort = isCom ? thermal.name.toUpperCase() : (this.comPort || null);
+                this.usbPort = usbPort;
                 await this.connectWindowsUsb();
                 OfflineStore.saveDeviceSettings({
                     printer_type: 'usb',
@@ -717,7 +750,7 @@ class PosPrinter {
             const blob = `${p.name} ${p.driver || ''} ${p.port || ''}`;
             if (/^USB\d+/i.test(String(p.port || ''))) return true;
             if (/COM Serial/i.test(String(p.driver || ''))) return true;
-            return /pos|thermal|receipt|epson|tm-|xprinter|xp-|gprinter|gp-|rongta|rpp|goojprt|hakpost|hprt|star|sm-|bixolon|srp-|citizen|munbyn|usb printing/i.test(blob);
+            return /pos|thermal|receipt|esc\s*pos|epson|tm-|xprinter|xp-|gprinter|gp-|rongta|rpp|goojprt|hakpost|hprt|star|sm-|bixolon|srp-|citizen|munbyn|tsc|zebra|gainscha|imin|sunmi|58mm|80mm|bluetooth printer|usb printing|generic/i.test(blob);
         };
 
         if (devices.suggested?.name && (isPos(devices.suggested) || isComName(devices.suggested.name))) {
@@ -766,18 +799,21 @@ class PosPrinter {
     }
 
     async discoverWriteCharacteristic(server) {
+        // Scan semua service dulu — dukung printer thermal dengan UUID custom
+        try {
+            const services = await server.getPrimaryServices();
+            for (const service of services) {
+                const found = await this.findWriteChar(service);
+                if (found) return found;
+            }
+        } catch (_) {}
+
         for (const uuid of BLE_SERVICES) {
             try {
                 const service = await server.getPrimaryService(uuid);
                 const found = await this.findWriteChar(service);
                 if (found) return found;
             } catch (_) {}
-        }
-
-        const services = await server.getPrimaryServices();
-        for (const service of services) {
-            const found = await this.findWriteChar(service);
-            if (found) return found;
         }
 
         return null;
@@ -791,10 +827,14 @@ class PosPrinter {
             } catch (_) {}
         }
 
-        const chars = await service.getCharacteristics();
-        return chars.find((c) => c.properties.writeWithoutResponse)
-            || chars.find((c) => c.properties.write)
-            || null;
+        try {
+            const chars = await service.getCharacteristics();
+            return chars.find((c) => c.properties.writeWithoutResponse)
+                || chars.find((c) => c.properties.write)
+                || null;
+        } catch (_) {
+            return null;
+        }
     }
 
     bytesToBase64(bytes) {
@@ -833,6 +873,7 @@ class PosPrinter {
         const extra = this.settings.extra || {};
         let suggested = extra.windows_printer || this.settings.printer_name || this.windowsPrinter || null;
         let com = extra.com_port || this.comPort || null;
+        let usb = extra.usb_port || this.usbPort || null;
 
         if (suggested && /^COM\d+$/i.test(suggested)) {
             com = suggested.toUpperCase();
@@ -843,6 +884,9 @@ class PosPrinter {
             const devices = await this.fetchWindowsDevices();
             if (!com) {
                 com = devices.saved?.com_port || null;
+            }
+            if (!usb) {
+                usb = devices.saved?.usb_port || null;
             }
             if (!suggested) {
                 suggested = devices.saved?.windows_printer || null;
@@ -859,24 +903,36 @@ class PosPrinter {
                         com = String(devices.suggested.name).toUpperCase();
                     } else {
                         suggested = devices.suggested.name;
+                        usb = usb || this.resolveUsbPortFromDevice(devices.suggested);
                     }
                 } else if ((devices.pos_printers || []).length === 1) {
                     const only = devices.pos_printers[0];
                     if (/^COM\d+$/i.test(only.name)) com = String(only.name).toUpperCase();
-                    else suggested = only.name;
+                    else {
+                        suggested = only.name;
+                        usb = usb || this.resolveUsbPortFromDevice(only);
+                    }
                 } else if ((devices.com_ports || []).length === 1) {
                     com = String(devices.com_ports[0]).toUpperCase();
                 }
+            }
+
+            if (!usb && suggested) {
+                const hit = (devices.pos_printers || devices.printers || []).find(
+                    (p) => String(p.name).toLowerCase() === String(suggested).toLowerCase(),
+                );
+                if (hit) usb = this.resolveUsbPortFromDevice(hit);
             }
         } catch (_) {}
 
         this.windowsPrinter = suggested || (com || null);
         this.comPort = com || null;
+        this.usbPort = usb || null;
         this.type = 'windows';
         if (!this.windowsPrinter && !this.comPort) {
-            // tetap windows agar writeBytes memakai jalur USB, target dari settings
             this.windowsPrinter = this.settings.extra?.windows_printer || null;
             this.comPort = this.settings.extra?.com_port || this.comPort;
+            this.usbPort = this.settings.extra?.usb_port || this.usbPort;
         }
         this.settings = {
             ...this.settings,
@@ -887,6 +943,7 @@ class PosPrinter {
                 ...(this.settings.extra || {}),
                 windows_printer: suggested || this.settings.extra?.windows_printer || null,
                 com_port: this.comPort,
+                usb_port: this.usbPort,
                 printer_usb_mode: 'windows',
             },
         };
@@ -981,15 +1038,41 @@ class PosPrinter {
         throw new Error('Bluetooth belum siap. Pastikan printer menyala, atau klik Sambungkan ulang.');
     }
 
+    resolveUsbPortFromDevice(device = {}) {
+        const port = String(device.port || '').toUpperCase();
+        if (/^USB\d+$/.test(port)) return port;
+        return null;
+    }
+
+    rememberUsbTarget(device = {}) {
+        const usbPort = this.resolveUsbPortFromDevice(device);
+        if (usbPort) {
+            this.usbPort = usbPort;
+        }
+        if (device.port && /^COM\d+$/i.test(device.port)) {
+            this.comPort = String(device.port).toUpperCase();
+        }
+        this.settings = {
+            ...this.settings,
+            extra: {
+                ...(this.settings.extra || {}),
+                usb_port: usbPort || this.settings.extra?.usb_port || null,
+                com_port: this.comPort || this.settings.extra?.com_port || null,
+            },
+        };
+    }
+
     resolveUsbTargets() {
         const name = this.windowsPrinter || this.settings.extra?.windows_printer || this.settings.printer_name || null;
         const com = this.comPort || this.settings.extra?.com_port || null;
+        const usb = this.usbPort || this.settings.extra?.usb_port || null;
         if (name && /^COM\d+$/i.test(name)) {
-            return { printerName: null, comPort: String(name).toUpperCase() };
+            return { printerName: null, comPort: String(name).toUpperCase(), usbPort: usb };
         }
         return {
             printerName: name,
             comPort: com ? String(com).toUpperCase() : null,
+            usbPort: usb ? String(usb).toUpperCase() : null,
         };
     }
 
@@ -1003,18 +1086,19 @@ class PosPrinter {
                 await this.connectWindowsUsb();
             }
             const target = this.resolveUsbTargets();
-            return this.sendWindowsRaw(data, target.printerName, target.comPort);
+            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort);
         }
 
         if (this.type === 'windows') {
             const target = this.resolveUsbTargets();
-            return this.sendWindowsRaw(data, target.printerName, target.comPort);
+            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort);
         }
 
         if (this.type === 'bluetooth' || prefer === 'bluetooth') {
             await this.ensureBluetooth();
-            const chunkSize = this.profile.chunkSize || 20;
-            const delay = this.profile.chunkDelay || 40;
+            this.profile = resolveProfile(this.settings, this.btDevice?.name);
+            const chunkSize = btChunkSize(this.profile, this.btCharacteristic);
+            const delay = this.profile.chunkDelay || 30;
             const canNoResp = this.btCharacteristic.properties.writeWithoutResponse;
             const canWrite = this.btCharacteristic.properties.write;
 
@@ -1028,8 +1112,10 @@ class PosPrinter {
                     } catch (_) {}
                 }
                 if (!sent && canWrite) {
-                    await this.btCharacteristic.writeValue(chunk);
-                    sent = true;
+                    try {
+                        await this.btCharacteristic.writeValue(chunk);
+                        sent = true;
+                    } catch (_) {}
                 }
                 if (!sent) {
                     throw new Error('Gagal menulis ke printer Bluetooth.');
@@ -1056,7 +1142,7 @@ class PosPrinter {
         throw new Error('Printer belum siap. Buka Pengaturan → Deteksi → Tes cetak.');
     }
 
-    async sendWindowsRaw(bytes, printerName = null, comPort = null) {
+    async sendWindowsRaw(bytes, printerName = null, comPort = null, usbPort = null) {
         const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
         const url = window.POS_CONFIG?.routes?.printerRaw;
         if (!url) {
@@ -1065,48 +1151,82 @@ class PosPrinter {
 
         let name = printerName;
         let com = comPort;
+        let usb = usbPort;
         if (name === undefined || name === null) {
             const t = this.resolveUsbTargets();
             name = t.printerName;
             if (com == null) com = t.comPort;
+            if (usb == null) usb = t.usbPort;
         }
         if (com === undefined) {
             com = this.comPort || this.settings.extra?.com_port || null;
+        }
+        if (usb === undefined || usb === null) {
+            usb = this.usbPort || this.settings.extra?.usb_port || null;
         }
         if (name && /^COM\d+$/i.test(name)) {
             com = String(name).toUpperCase();
             name = null;
         }
+        if (name && /^USB\d+$/i.test(name)) {
+            usb = String(name).toUpperCase();
+            name = null;
+        }
 
-        const res = await fetch(url, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify({
-                bytes: this.bytesToBase64(data),
-                printer_name: name,
-                com_port: com,
-            }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok || !json.success) {
-            throw new Error(json.message || 'Gagal cetak USB. Pilih printer/COM di Pengaturan lalu Tes cetak.');
-        }
-        if (json.result?.target) {
-            if (/^COM\d+$/i.test(json.result.target)) {
-                this.comPort = json.result.target;
-            } else {
-                this.windowsPrinter = json.result.target;
+        const attempts = [
+            { printer_name: name, com_port: com, usb_port: usb },
+            { printer_name: name, com_port: com, usb_port: null },
+            { printer_name: name, com_port: null, usb_port: usb },
+            { printer_name: name, com_port: null, usb_port: null },
+            { printer_name: null, com_port: com, usb_port: usb },
+            { printer_name: null, com_port: com, usb_port: null },
+            { printer_name: null, com_port: null, usb_port: usb },
+            { printer_name: null, com_port: null, usb_port: null },
+        ];
+
+        const seen = new Set();
+        let lastError = 'Gagal cetak USB. Pilih printer/COM di Pengaturan lalu Tes cetak.';
+
+        for (const attempt of attempts) {
+            const key = `${attempt.printer_name || ''}|${attempt.com_port || ''}|${attempt.usb_port || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({
+                    bytes: this.bytesToBase64(data),
+                    printer_name: attempt.printer_name,
+                    com_port: attempt.com_port,
+                    usb_port: attempt.usb_port,
+                }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (res.ok && json.success) {
+                if (json.result?.target) {
+                    if (/^COM\d+$/i.test(json.result.target)) {
+                        this.comPort = json.result.target;
+                    } else if (/^USB\d+$/i.test(json.result.target)) {
+                        this.usbPort = json.result.target;
+                    } else {
+                        this.windowsPrinter = json.result.target;
+                    }
+                    this.type = 'windows';
+                    this.emitStatus();
+                }
+                return true;
             }
-            this.type = 'windows';
-            this.emitStatus();
+            lastError = json.message || lastError;
         }
-        return true;
+
+        throw new Error(lastError);
     }
 
     async openCashDrawer(options = {}) {

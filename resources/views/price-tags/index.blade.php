@@ -5,19 +5,41 @@
 @section('subheading', 'Pilih produk, atur jumlah, lalu cetak atau unduh PDF (5,5 × 3,5 cm)')
 
 @section('content')
-<form method="GET" class="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
-    <input type="text" name="q" value="{{ $q }}" class="input" placeholder="Cari produk / barcode">
-    <select name="category_id" class="input" data-search="true" data-placeholder="Semua kategori">
-        <option value="">Semua kategori</option>
-        @foreach($categories as $cat)
-            <option value="{{ $cat->id }}" @selected($categoryId == $cat->id)>{{ $cat->name }}</option>
-        @endforeach
-    </select>
-    <button class="btn btn-secondary">Filter</button>
+<form method="GET" class="card p-4 mb-4 space-y-3">
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <input type="text" name="q" value="{{ $q }}" class="input" placeholder="Cari produk / barcode">
+        <select name="category_id" class="input" data-search="true" data-placeholder="Semua kategori">
+            <option value="">Semua kategori</option>
+            @foreach($categories as $cat)
+                <option value="{{ $cat->id }}" @selected($categoryId == $cat->id)>{{ $cat->name }}</option>
+            @endforeach
+        </select>
+        <select name="sort" class="input" data-no-select2>
+            <option value="name_asc" @selected(($sort ?? 'name_asc') === 'name_asc')>Urut: Nama A→Z</option>
+            <option value="name_desc" @selected(($sort ?? '') === 'name_desc')>Urut: Nama Z→A</option>
+            <option value="date_desc" @selected(($sort ?? '') === 'date_desc')>Urut: Input terbaru</option>
+            <option value="date_asc" @selected(($sort ?? '') === 'date_asc')>Urut: Input terlama</option>
+        </select>
+        <button class="btn btn-secondary">Terapkan filter</button>
+    </div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+        <div>
+            <label class="text-xs font-medium text-slate-600">Tanggal input dari</label>
+            <input type="date" name="date_from" value="{{ $dateFrom }}" class="input mt-1">
+        </div>
+        <div>
+            <label class="text-xs font-medium text-slate-600">Tanggal input sampai</label>
+            <input type="date" name="date_to" value="{{ $dateTo }}" class="input mt-1">
+        </div>
+        <p class="text-xs text-slate-500 sm:col-span-2 lg:col-span-2">
+            Filter berdasarkan tanggal produk pertama kali ditambahkan ke sistem.
+        </p>
+    </div>
 </form>
 
 <form method="POST" action="{{ route('price-tags.print') }}" target="_blank" id="price-tag-form">
     @csrf
+    <input type="hidden" name="sort" value="{{ $sort ?? 'name_asc' }}">
     <div class="card p-4 sm:p-5 mb-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
         <div class="text-sm text-slate-600">
             Ukuran label tetap: <strong>5,5 cm × 3,5 cm</strong> (A4)
@@ -45,7 +67,7 @@
                     <span class="price-pick-check" aria-hidden="true"></span>
                     <div class="min-w-0 flex-1">
                         <div class="font-semibold text-sm leading-snug truncate">{{ $p->name }}</div>
-                        <div class="text-xs text-slate-500 truncate">{{ $p->category?->name ?? 'Tanpa kategori' }}</div>
+                        <div class="text-xs text-slate-500 truncate">{{ $p->category?->name ?? 'Tanpa kategori' }} · Input {{ $p->created_at?->format('d/m/Y') ?? '-' }}</div>
                     </div>
                     <div class="text-brand-700 font-extrabold text-sm whitespace-nowrap">
                         Rp {{ number_format($p->price, 0, ',', '.') }}

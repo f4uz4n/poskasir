@@ -6,14 +6,24 @@
 
 @section('content')
 <div class="card p-5">
-    <form method="GET" class="flex flex-col sm:flex-row gap-2 mb-4">
-        <input type="text" name="q" value="{{ request('q') }}" class="input" placeholder="Cari invoice / pelanggan / meja">
-        <select name="order_type" class="input sm:w-44" data-placeholder="Semua tipe">
-            <option value="">Semua tipe</option>
-            <option value="dine_in" @selected(request('order_type') === 'dine_in')>Dine In</option>
-            <option value="takeaway" @selected(request('order_type') === 'takeaway')>Take Away</option>
-        </select>
-        <button class="btn btn-secondary">Cari</button>
+    <form method="GET" class="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+        <input type="text" name="q" value="{{ request('q') }}" class="input lg:col-span-2" placeholder="Cari invoice / pelanggan / meja">
+        <div>
+            <label class="text-xs text-slate-500">Dari tanggal</label>
+            <input type="date" name="date_from" value="{{ $dateFrom }}" class="input mt-1">
+        </div>
+        <div>
+            <label class="text-xs text-slate-500">Sampai tanggal</label>
+            <input type="date" name="date_to" value="{{ $dateTo }}" class="input mt-1">
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2">
+            <select name="order_type" class="input flex-1" data-placeholder="Semua tipe">
+                <option value="">Semua tipe</option>
+                <option value="dine_in" @selected(request('order_type') === 'dine_in')>Dine In</option>
+                <option value="takeaway" @selected(request('order_type') === 'takeaway')>Take Away</option>
+            </select>
+            <button class="btn btn-secondary shrink-0">Filter</button>
+        </div>
     </form>
 
     <div class="overflow-x-auto">
@@ -69,7 +79,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="8" class="py-8 text-center text-slate-500">Belum ada transaksi.</td></tr>
+                    <tr><td colspan="8" class="py-8 text-center text-slate-500">Belum ada transaksi pada periode ini.</td></tr>
                 @endforelse
             </tbody>
         </table>

@@ -68,7 +68,7 @@ function serviceWorkerUrl() {
     return window.POS_CONFIG?.swUrl || new URL('sw.js', document.baseURI).href;
 }
 
-const OFFLINE_CACHE_NAME = 'poskasir-v6';
+const OFFLINE_CACHE_NAME = 'poskasir-v7';
 
 async function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return null;
