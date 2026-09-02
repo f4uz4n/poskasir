@@ -147,17 +147,18 @@
                             @php
                                 $winPrinter = old('windows_printer', $settings->extra['windows_printer'] ?? $settings->extra['com_port'] ?? $settings->printer_name ?? '');
                             @endphp
-                            <option value="">— Deteksi otomatis —</option>
+                            <option value="">— Pilih printer —</option>
                             @if($winPrinter && !preg_match('/onenote|pdf|fax|xps|microsoft/i', $winPrinter))
                                 <option value="{{ $winPrinter }}" selected>{{ preg_match('/^COM\d+$/i', $winPrinter) ? $winPrinter.' (USB/Serial)' : $winPrinter }}</option>
                             @endif
                         </select>
+                        <input type="text" id="windows-printer-manual" class="input mt-2" placeholder="Atau ketik nama printer persis seperti di Windows (Devices and Printers)" value="{{ preg_match('/onenote|pdf|fax|xps|microsoft/i', $winPrinter) ? '' : $winPrinter }}">
                         <p class="text-xs text-slate-500 mt-1">
-                            Pilih printer Windows ATAU port COM. Jika <strong>Word bisa cetak</strong> tapi KasirFlow tidak:
-                            pastikan nama printer sama persis, klik <strong>Deteksi</strong>, lalu <strong>Tes cetak</strong>.
-                            KasirFlow otomatis memakai driver Windows (seperti Word) untuk printer Gprinter/GP-58MB.
-                            Banyak thermal (RPP/Hakpost) hanya tampil sebagai COM — pilih COM-nya.
+                            Pilih dari daftar <strong>atau ketik manual</strong> nama printer Windows (harus sama persis).
+                            Jika hanya muncul <em>USB Printing Support</em> di Device Manager, instal dulu driver printer dari CD/website produsen.
                         </p>
+                        <ul id="usb-device-hints" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2 mt-2 space-y-1"></ul>
+                        <button type="button" id="btn-refresh-usb-printers" class="btn btn-ghost text-xs mt-2">Muat ulang daftar printer</button>
                     </div>
                 </div>
 
@@ -482,7 +483,58 @@ const detectedNameEl = document.getElementById('detected-printer-name');
 const detectedMetaEl = document.getElementById('detected-printer-meta');
 const printerNameInput = document.getElementById('printer-name-input');
 const windowsPrinterSelect = document.getElementById('windows-printer-select');
+const windowsPrinterManual = document.getElementById('windows-printer-manual');
+const usbDeviceHints = document.getElementById('usb-device-hints');
 const usbFields = document.getElementById('usb-windows-fields');
+
+function isVirtualPrinterName(name = '') {
+    return /onenote|one note|microsoft print to pdf|microsoft xps|fax|send to|adobe pdf|pdfcreator|pdf24|virtual|document writer|portprompt/i
+        .test(String(name || ''));
+}
+
+function mergePrinterOptions(json = {}) {
+    const list = json.printer_options?.length
+        ? json.printer_options
+        : [
+            ...(json.usable_printers || json.pos_printers || []),
+            ...((json.com_ports || []).map((c) => ({ name: c, port: c, driver: 'COM Serial', label: `${c} (USB/Serial)` }))),
+        ];
+    const uniq = [];
+    const seen = new Set();
+    list.forEach((p) => {
+        const name = String(p?.name || '').trim();
+        if (!name || isVirtualPrinterName(name) || seen.has(name.toLowerCase())) return;
+        seen.add(name.toLowerCase());
+        uniq.push(p);
+    });
+    return uniq;
+}
+
+function showUsbDeviceHints(devices = []) {
+    if (!usbDeviceHints) return;
+    const items = (devices || []).filter((d) => d?.name);
+    if (!items.length) {
+        usbDeviceHints.classList.add('hidden');
+        usbDeviceHints.innerHTML = '';
+        return;
+    }
+    usbDeviceHints.innerHTML = items.map((d) => `<li><strong>${d.name}</strong>${d.hint ? ` — ${d.hint}` : ''}</li>`).join('');
+    usbDeviceHints.classList.remove('hidden');
+}
+
+function applyManualPrinterName() {
+    const manual = windowsPrinterManual?.value?.trim() || '';
+    if (!manual) return;
+    if (windowsPrinterSelect) {
+        fillWindowsPrinterOptions(
+            [{ name: manual, port: '', label: manual }],
+            manual,
+        );
+        windowsPrinterSelect.value = manual;
+    }
+    if (printerNameInput) printerNameInput.value = manual;
+    if (detectedNameEl) detectedNameEl.textContent = manual;
+}
 
 function syncUsbFields() {
     const isUsb = typeSelect?.value === 'usb';
@@ -580,7 +632,7 @@ function collectDeviceSettings(bt = {}) {
             printer_profile: document.querySelector('[name="printer_profile"]')?.value || 'auto',
             printer_baud: Number(document.querySelector('[name="printer_baud"]')?.value || 9600),
             printer_usb_mode: document.querySelector('[name="printer_usb_mode"]')?.value || 'windows',
-            windows_printer: windowsPrinterSelect?.value || '',
+            windows_printer: windowsPrinterSelect?.value || windowsPrinterManual?.value || '',
             com_port: (() => {
                 const v = windowsPrinterSelect?.value || document.getElementById('com-port-input')?.value || '';
                 return /^COM\d+$/i.test(v) ? v.toUpperCase() : (document.getElementById('com-port-input')?.value || '');
@@ -647,20 +699,23 @@ async function pairPrinter() {
         setStatus('Printer dimatikan. Pilih Bluetooth atau USB untuk mendeteksi.');
         return;
     }
+    applyManualPrinterName();
     applyFormSettings();
     setStatus(preferType === 'usb' ? 'Mendeteksi printer USB…' : 'Mendeteksi printer Bluetooth…');
     try {
-        const result = await window.PosPrinter.detectAndConnect({ allowPrompt: true, preferType });
+        let deviceJson = null;
+        if (preferType === 'usb') {
+            deviceJson = await loadPosPrinters();
+        }
+        const result = await window.PosPrinter.detectAndConnect({ allowPrompt: true, preferType, deviceJson });
+        const printerList = result?.printers || deviceJson?.printers || [];
+        if (printerList.length) {
+            fillWindowsPrinterOptions(printerList, result?.name || windowsPrinterSelect?.value || '');
+        }
         if (!result?.ok) {
-            if (preferType === 'usb' && result?.printers) {
-                fillWindowsPrinterOptions(result.printers, windowsPrinterSelect?.value || '');
-            }
             setStatus(result?.message || 'Printer belum terdeteksi');
             window.PosApp?.toast(result?.message || 'Printer belum terdeteksi');
             return;
-        }
-        if (result.type === 'usb' && result.printers) {
-            fillWindowsPrinterOptions(result.printers, result.name);
         }
         setDetectedUi({
             name: result.name,
@@ -741,6 +796,7 @@ windowsPrinterSelect?.addEventListener('change', () => {
     if (windowsPrinterSelect.value && printerNameInput) {
         printerNameInput.value = windowsPrinterSelect.value;
         if (detectedNameEl) detectedNameEl.textContent = windowsPrinterSelect.value;
+        if (windowsPrinterManual) windowsPrinterManual.value = windowsPrinterSelect.value;
     }
     const selected = windowsPrinterSelect?.selectedOptions?.[0];
     const port = selected?.dataset?.port || '';
@@ -751,36 +807,42 @@ windowsPrinterSelect?.addEventListener('change', () => {
     applyFormSettings();
 });
 
+windowsPrinterManual?.addEventListener('change', applyManualPrinterName);
+windowsPrinterManual?.addEventListener('blur', applyManualPrinterName);
+document.getElementById('btn-refresh-usb-printers')?.addEventListener('click', async () => {
+    setStatus('Memuat daftar printer Windows…');
+    await loadPosPrinters();
+    setStatus('Daftar printer diperbarui. Pilih nama printer lalu Simpan.', true);
+});
+
 document.getElementById('btn-pair-printer')?.addEventListener('click', pairPrinter);
 document.getElementById('btn-test-print')?.addEventListener('click', testPrint);
 document.getElementById('btn-test-drawer')?.addEventListener('click', testDrawer);
 document.getElementById('btn-test-print-side')?.addEventListener('click', testPrint);
 
 async function loadPosPrinters() {
-    if (!window.POS_CONFIG?.routes?.printerDevices) return;
+    if (!window.POS_CONFIG?.routes?.printerDevices) return null;
     try {
         const res = await fetch(window.POS_CONFIG.routes.printerDevices, { headers: { Accept: 'application/json' } });
         const json = await res.json();
-        if (!json.success) return;
-        const list = [
-            ...(json.pos_printers || []),
-            ...((json.com_ports || []).map((c) => ({ name: c, port: c, driver: 'COM Serial', label: `${c} (USB/Serial)` }))),
-        ];
-        // unique by name
-        const uniq = [];
-        const seen = new Set();
-        list.forEach((p) => {
-            const n = String(p.name || '').toUpperCase();
-            if (!n || seen.has(n)) return;
-            seen.add(n);
-            uniq.push(p);
-        });
-        fillWindowsPrinterOptions(uniq, windowsPrinterSelect?.value || json.suggested?.name || json.saved?.com_port || '');
+        if (!json.success) return null;
+        const uniq = mergePrinterOptions(json);
+        const selected = windowsPrinterSelect?.value
+            || windowsPrinterManual?.value
+            || json.suggested?.name
+            || json.saved?.windows_printer
+            || json.saved?.com_port
+            || '';
+        fillWindowsPrinterOptions(uniq, selected);
+        showUsbDeviceHints(json.usb_devices || []);
         if (json.suggested?.port && /^USB\d+$/i.test(json.suggested.port)) {
             const usbInput = document.getElementById('usb-port-input');
             if (usbInput) usbInput.value = String(json.suggested.port).toUpperCase();
         }
-        return json;
+        if (!uniq.length) {
+            setStatus('Printer USB belum terpasang di Windows. Instal driver printer lalu klik Muat ulang.', false);
+        }
+        return { ...json, printers: uniq };
     } catch (_) {
         return null;
     }
@@ -838,14 +900,15 @@ syncUsbFields();
 })();
 
 document.querySelector('form')?.addEventListener('submit', () => {
-    // Pastikan nama USB/COM ikut tersimpan ke printer_name sebelum POST
-    if (typeSelect?.value === 'usb' && windowsPrinterSelect?.value) {
-        if (printerNameInput) printerNameInput.value = windowsPrinterSelect.value;
-        if (detectedNameEl) detectedNameEl.textContent = windowsPrinterSelect.value;
+    applyManualPrinterName();
+    const usbName = windowsPrinterSelect?.value || windowsPrinterManual?.value || '';
+    if (typeSelect?.value === 'usb' && usbName) {
+        if (printerNameInput) printerNameInput.value = usbName;
+        if (detectedNameEl) detectedNameEl.textContent = usbName;
         const comInput = document.getElementById('com-port-input');
         if (comInput) {
-            comInput.value = /^COM\d+$/i.test(windowsPrinterSelect.value)
-                ? windowsPrinterSelect.value.toUpperCase()
+            comInput.value = /^COM\d+$/i.test(usbName)
+                ? usbName.toUpperCase()
                 : '';
         }
     }

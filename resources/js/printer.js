@@ -666,23 +666,67 @@ class PosPrinter {
         return this.reconnectBluetoothPersistent({ tries: 4, gapMs: 600 });
     }
 
+    buildPrinterOptionList(devices = {}) {
+        const list = devices.printer_options?.length
+            ? devices.printer_options
+            : [
+                ...(devices.usable_printers || devices.pos_printers || devices.printers || []),
+                ...((devices.com_ports || []).map((c) => ({
+                    name: c,
+                    port: c,
+                    driver: 'COM Serial',
+                    label: `${c} (USB/Serial)`,
+                }))),
+            ];
+        const uniq = [];
+        const seen = new Set();
+        list.forEach((p) => {
+            const name = String(p?.name || '').trim();
+            if (!name || seen.has(name.toLowerCase())) return;
+            if (/onenote|one note|microsoft print to pdf|microsoft xps|fax|adobe pdf|pdfcreator|pdf24|virtual|document writer|portprompt/i.test(name)) {
+                return;
+            }
+            seen.add(name.toLowerCase());
+            uniq.push(p);
+        });
+        return uniq;
+    }
+
     /**
      * Deteksi printer sesuai pilihan user: bluetooth | usb.
      */
-    async detectAndConnect({ allowPrompt = true, preferType = null } = {}) {
+    async detectAndConnect({ allowPrompt = true, preferType = null, deviceJson = null } = {}) {
         const prefer = preferType || this.settings.printer_type || 'bluetooth';
 
         if (prefer === 'usb') {
             try {
-                const devices = await this.fetchWindowsDevices();
-                const thermal = this.pickThermalWindowsPrinter(devices);
+                const devices = deviceJson || await this.fetchWindowsDevices();
+                const options = this.buildPrinterOptionList(devices);
+                const savedName = String(
+                    this.settings.extra?.windows_printer
+                    || this.settings.printer_name
+                    || '',
+                ).trim();
+
+                let thermal = null;
+                if (savedName) {
+                    thermal = options.find((p) => String(p.name).toLowerCase() === savedName.toLowerCase())
+                        || { name: savedName, port: null, driver: null };
+                }
+                if (!thermal?.name) {
+                    thermal = this.pickThermalWindowsPrinter(devices);
+                }
+
                 if (!thermal?.name) {
                     return {
                         ok: false,
                         type: 'usb',
                         name: null,
-                        message: 'Printer USB/COM belum ditemukan. Tancapkan printer, instal di Windows, atau pilih port COM di daftar.',
-                        printers: devices.pos_printers || [],
+                        message: options.length
+                            ? 'Pilih nama printer di daftar (harus sama dengan Windows), ketik manual jika perlu, lalu Simpan → Tes cetak.'
+                            : 'Printer belum terpasang di Windows. Instal driver printer (bukan hanya USB Printing Support), lalu Muat ulang daftar.',
+                        printers: options,
+                        usb_devices: devices.usb_devices || [],
                         com_ports: devices.com_ports || [],
                     };
                 }
@@ -722,8 +766,9 @@ class PosPrinter {
                     name: thermal.name,
                     message: isCom
                         ? `Port USB/Serial terdeteksi: ${thermal.name}`
-                        : `Printer USB terdeteksi: ${thermal.name}`,
-                    printers: devices.pos_printers || [],
+                        : `Printer USB siap: ${thermal.name}`,
+                    printers: options,
+                    usb_devices: devices.usb_devices || [],
                     com_ports: devices.com_ports || [],
                 };
             } catch (err) {
@@ -815,6 +860,7 @@ class PosPrinter {
             if (isComName(p.name) || isComName(p.port)) return true;
             const blob = `${p.name} ${p.driver || ''} ${p.port || ''}`;
             if (/^USB\d+/i.test(String(p.port || ''))) return true;
+            if (/rongtausb|usb\s*port/i.test(String(p.port || ''))) return true;
             if (/COM Serial/i.test(String(p.driver || ''))) return true;
             return /pos|thermal|receipt|esc\s*pos|epson|tm-|xprinter|xp-|gprinter|gp-|rongta|rpp|goojprt|hakpost|hprt|star|sm-|bixolon|srp-|citizen|munbyn|tsc|zebra|gainscha|imin|sunmi|58mm|80mm|bluetooth printer|usb printing|generic/i.test(blob);
         };

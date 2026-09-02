@@ -42,7 +42,117 @@ class WindowsPrinterService
             ];
         }
 
+        // WMI cadangan (jika Get-Printer kosong / lambat)
+        $wmi = 'Get-CimInstance Win32_Printer | Select-Object Name, PortName, DriverName | ConvertTo-Json -Compress';
+        foreach ($this->decodeJson($this->powershell($wmi)) as $row) {
+            $name = trim((string) ($row['Name'] ?? ''));
+            if ($name === '' || isset($seen[$name])) {
+                continue;
+            }
+            $seen[$name] = true;
+            $printers[] = [
+                'name' => $name,
+                'port' => $row['PortName'] ?? null,
+                'driver' => $row['DriverName'] ?? null,
+            ];
+        }
+
         return $printers;
+    }
+
+    /** Semua printer Windows yang bukan virtual (PDF, OneNote, dll). */
+    public function listUsablePrinters(): array
+    {
+        return array_values(array_filter(
+            $this->listPrinters(),
+            fn (array $p) => ! $this->isVirtualPrinter($p)
+        ));
+    }
+
+    /**
+     * Perangkat USB / PnP terkait printer (mis. "USB Printing Support").
+     *
+     * @return array<int,array{name:string,device_id:?string,hint:string}>
+     */
+    public function listUsbDevices(): array
+    {
+        $devices = [];
+        $seen = [];
+
+        $script = 'Get-CimInstance Win32_PnPEntity | Where-Object { '
+            .'$_.Name -match "print|Printing|Gprinter|Gainscha|Rongta|RPP|GP-|POS|thermal|58mm|80mm|USB.*Print" '
+            .'} | Select-Object Name, DeviceID | ConvertTo-Json -Compress';
+
+        foreach ($this->decodeJson($this->powershell($script)) as $row) {
+            $name = trim((string) ($row['Name'] ?? ''));
+            if ($name === '' || isset($seen[strtolower($name)])) {
+                continue;
+            }
+            $seen[strtolower($name)] = true;
+            $devices[] = [
+                'name' => $name,
+                'device_id' => $row['DeviceID'] ?? null,
+                'hint' => $this->usbDeviceHint($name),
+            ];
+        }
+
+        return $devices;
+    }
+
+    protected function usbDeviceHint(string $name): string
+    {
+        $n = strtolower($name);
+        if (str_contains($n, 'usb printing support') || str_contains($n, 'dukungan pencetakan usb')) {
+            return 'Driver printer belum terpasang — instal driver di Windows (Control Panel → Printer).';
+        }
+
+        return 'Perangkat USB terdeteksi.';
+    }
+
+    /** @return array<int,array{name:string,port:?string,driver:?string,label:string}> */
+    public function listPrinterOptions(): array
+    {
+        $options = [];
+
+        foreach ($this->listUsablePrinters() as $printer) {
+            $port = trim((string) ($printer['port'] ?? ''));
+            $driver = trim((string) ($printer['driver'] ?? ''));
+            $label = $printer['name'];
+            if ($port !== '') {
+                $label .= ' — '.$port;
+            } elseif ($driver !== '') {
+                $label .= ' ('.$driver.')';
+            }
+            $options[] = [
+                ...$printer,
+                'label' => $label,
+            ];
+        }
+
+        foreach ($this->listComPortOptions() as $com) {
+            $options[] = [
+                'name' => $com['name'],
+                'port' => $com['port'],
+                'driver' => 'COM Serial',
+                'label' => $com['label'],
+            ];
+        }
+
+        return $options;
+    }
+
+    public function isStandardPort(?string $port): bool
+    {
+        return (bool) preg_match('/^(COM\d+|USB\d+|LPT\d+)$/i', trim((string) $port));
+    }
+
+    public function hasCustomPort(?array $printer): bool
+    {
+        if (! $printer || empty($printer['port'])) {
+            return false;
+        }
+
+        return ! $this->isStandardPort((string) $printer['port']);
     }
 
     /** @return array<int,string> */
@@ -109,6 +219,10 @@ class WindowsPrinterService
             return true;
         }
 
+        if (preg_match('/rongtausb|usb\s*port/i', (string) ($printer['port'] ?? ''))) {
+            return true;
+        }
+
         return (bool) preg_match(
             '/pos|thermal|receipt|escpos|esc\s*pos|epson|tm-|xprinter|xp-|gprinter|gp-|gp58|58mb|gainscha|rongta|rpp|goojprt|hakpost|hprt|hpc|star|sm-|bixolon|srp-|citizen|zebra|tsc|gainscha|munbyn|imin|sunmi|bluetooth printer|printer\s*58|printer\s*80|58mm|80mm|generic\s*\/\s*text|usb printing support/i',
             $blob
@@ -155,9 +269,23 @@ class WindowsPrinterService
         }
 
         return (bool) preg_match(
-            '/gprinter|gainscha|gp-|gp58|gp80|gs-|pos58|pos80|58mb|80mm|receipt\s*printer|thermal\s*receipt|escpos|esc\s*pos/i',
+            '/gprinter|gainscha|gp-|gp58|gp80|gs-|pos58|pos80|58mb|80mm|receipt\s*printer|thermal\s*receipt|escpos|esc\s*pos|rongta|rpp|rpp02|rongtausb/i',
             $blob
         );
+    }
+
+    /** Port OEM (RongtaUSB, dll.) — hanya bisa cetak lewat nama printer + driver Windows. */
+    public function requiresDriverByName(?array $printer): bool
+    {
+        if (! $printer || $this->isVirtualPrinter($printer)) {
+            return false;
+        }
+
+        if ($this->hasCustomPort($printer)) {
+            return true;
+        }
+
+        return $this->prefersDriverRender($printer);
     }
 
     /** @return array<int,string> */
@@ -174,7 +302,7 @@ class WindowsPrinterService
 
         if ($printer && ! empty($printer['port'])) {
             $port = strtoupper(trim((string) $printer['port']));
-            if (preg_match('/^(COM\d+|USB\d+|LPT\d+)$/i', $port)) {
+            if ($this->isStandardPort($port)) {
                 $ports[] = $port;
             }
         }
@@ -270,6 +398,10 @@ class WindowsPrinterService
         }
         if ($renderMode === 'raw') {
             return false;
+        }
+
+        if ($meta !== null && $this->requiresDriverByName($meta)) {
+            return true;
         }
 
         return $meta !== null && $this->prefersDriverRender($meta);
@@ -384,8 +516,9 @@ class WindowsPrinterService
             }
         }
 
-        // 3) Windows spooler RAW
-        if ($explicit !== '' && ! $this->isVirtualPrinter(['name' => $explicit]) && $renderMode !== 'driver') {
+        // 3) Windows spooler RAW (lewati jika printer pakai port OEM — RAW palsu sukses tanpa cetak)
+        $skipRaw = $meta !== null && $this->requiresDriverByName($meta);
+        if ($explicit !== '' && ! $this->isVirtualPrinter(['name' => $explicit]) && $renderMode !== 'driver' && ! $skipRaw) {
             try {
                 $this->writeWinspool($explicit, $bytes);
 
@@ -432,7 +565,7 @@ class WindowsPrinterService
                 }
             }
 
-            if ($renderMode !== 'driver') {
+            if ($renderMode !== 'driver' && ! $this->requiresDriverByName($target)) {
                 try {
                     $this->writeWinspool($target['name'], $bytes);
 
