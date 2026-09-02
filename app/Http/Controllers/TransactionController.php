@@ -10,16 +10,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Services\TransactionVoidService;
 
 class TransactionController extends Controller
 {
     public function index(Request $request)
     {
         $user = Auth::user();
+        abort_unless($user->canAccessArea('finance'), 403);
         $ownerId = $user->storeOwnerId();
 
         $dateFrom = $request->get('date_from', now()->toDateString());
         $dateTo = $request->get('date_to', now()->toDateString());
+
+        $settings = $user->storeOwner()->storeSetting;
 
         $transactions = Transaction::where('user_id', $ownerId)
             ->with(['items', 'cashier'])
@@ -37,7 +41,7 @@ class TransactionController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        return view('transactions.index', compact('transactions', 'dateFrom', 'dateTo'));
+        return view('transactions.index', compact('transactions', 'dateFrom', 'dateTo', 'settings'));
     }
 
     public function store(Request $request)
@@ -226,36 +230,16 @@ class TransactionController extends Controller
         return response()->json($transaction->load('items'));
     }
 
-    public function void(Transaction $transaction)
+    public function void(Transaction $transaction, TransactionVoidService $voidService)
     {
         abort_unless($transaction->user_id === Auth::user()->storeOwnerId(), 403);
         abort_unless(Auth::user()->isStoreOwner(), 403);
 
-        if ($transaction->status === 'void') {
-            return back()->with('error', 'Transaksi sudah dibatalkan.');
+        try {
+            $voidService->void($transaction, Auth::user(), 'Dibatalkan langsung oleh pimpinan toko');
+        } catch (\InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
         }
-
-        DB::transaction(function () use ($transaction) {
-            foreach ($transaction->items as $item) {
-                if ($item->product_id) {
-                    Product::where('id', $item->product_id)
-                        ->where('track_stock', true)
-                        ->increment('stock', $item->qty);
-                }
-            }
-            $transaction->update(['status' => 'void']);
-
-            Receivable::where('transaction_id', $transaction->id)
-                ->whereIn('status', ['unpaid', 'partial'])
-                ->get()
-                ->each(function (Receivable $r) {
-                    $r->update([
-                        'status' => 'paid',
-                        'paid_amount' => $r->amount,
-                        'notes' => trim(($r->notes ? $r->notes.' · ' : '').'Dibatalkan karena void transaksi'),
-                    ]);
-                });
-        });
 
         return back()->with('success', 'Transaksi dibatalkan.');
     }

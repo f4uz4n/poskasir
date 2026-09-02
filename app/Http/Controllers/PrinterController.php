@@ -59,7 +59,7 @@ class PrinterController extends Controller
         $settings = Auth::user()->storeOwner()->storeSetting;
         $extra = is_array($settings?->extra) ? $settings->extra : [];
         $raw = base64_decode($data['bytes'], true);
-        if ($raw === false || $raw === '') {
+        if (($raw === false || $raw === '') && empty($data['text'])) {
             return response()->json(['success' => false, 'message' => 'Data struk tidak valid.'], 422);
         }
 
@@ -83,6 +83,13 @@ class PrinterController extends Controller
             }
         }
 
+        if (($raw === false || $raw === '') && ($plainText === null || trim($plainText) === '')) {
+            return response()->json(['success' => false, 'message' => 'Data struk tidak valid.'], 422);
+        }
+        if ($raw === false || $raw === '') {
+            $raw = "\x1b\x40";
+        }
+
         if (! $name && ! $com && empty($extra['windows_printer']) && empty($settings?->printer_name)) {
             return response()->json([
                 'success' => false,
@@ -91,6 +98,7 @@ class PrinterController extends Controller
         }
 
         try {
+            $extra['paper_width'] = (int) ($settings?->paper_width ?? 58);
             $result = $printers->printRaw($raw, $name, $com, $baud, $usb, $plainText, $extra);
 
             return response()->json([

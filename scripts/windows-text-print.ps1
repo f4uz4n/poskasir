@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$PrinterName,
     [Parameter(Mandatory = $true)]
-    [string]$FilePath
+    [string]$FilePath,
+    [int]$PaperWidth = 58
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,33 +17,38 @@ if ($printer -eq '') {
     throw "Nama printer kosong."
 }
 
-$errors = @()
-
-# Metode 1: perintah print Windows (sama seperti Notepad/Word lewat driver)
-try {
-    $quotedPrinter = '"' + $printer.Replace('"', '""') + '"'
-    $quotedFile = '"' + $FilePath.Replace('"', '""') + '"'
-    $p = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "print /D:$quotedPrinter $quotedFile") -Wait -PassThru -WindowStyle Hidden
-    if ($p.ExitCode -eq 0) {
-        Write-Output "OK"
-        exit 0
-    }
-    $errors += "print exit $($p.ExitCode)"
-} catch {
-    $errors += $_.Exception.Message
+$content = Get-Content -LiteralPath $FilePath -Raw -Encoding UTF8
+Remove-Item -LiteralPath $FilePath -Force -ErrorAction SilentlyContinue
+if ($null -eq $content -or $content.Trim().Length -eq 0) {
+    throw "File struk kosong."
 }
 
-# Metode 2: Out-Printer (PowerShell, lewat spooler + driver)
-try {
-    $content = Get-Content -LiteralPath $FilePath -Raw -Encoding UTF8
-    if ($null -ne $content -and $content.Length -gt 0) {
-        $content | Out-Printer -Name $printer
-        Write-Output "OK"
-        exit 0
-    }
-    $errors += "file kosong"
-} catch {
-    $errors += $_.Exception.Message
+if ($PaperWidth -ne 80) {
+    $PaperWidth = 58
 }
 
-throw "Gagal cetak lewat driver Windows '$printer': $($errors -join ' | ')"
+$dll = Join-Path $PSScriptRoot 'KasirFlowThermalPrint.dll'
+if (-not (Test-Path -LiteralPath $dll)) {
+    $csc = @(
+        "${env:WINDIR}\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
+        "${env:WINDIR}\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $csc) {
+        throw 'Compiler C# tidak ditemukan. Jalankan: scripts/build-print-dll.bat'
+    }
+    $src = Join-Path $PSScriptRoot 'KasirFlowThermalPrint.cs'
+    & $csc /nologo /target:library "/out:$dll" $src /r:System.Drawing.dll
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $dll)) {
+        throw 'Gagal compile KasirFlowThermalPrint.dll'
+    }
+}
+
+Add-Type -Path $dll
+
+$job = New-Object KasirFlowThermalPrint
+$job.PrinterName = $printer
+$job.Content = $content
+$job.PaperWidthMm = $PaperWidth
+$job.Run()
+
+Write-Output 'OK'

@@ -55,6 +55,14 @@ class AuthController extends Controller
                 return redirect()->intended(route('developer.dashboard'));
             }
 
+            if ($user->isKasir()) {
+                return redirect()->intended(route('pos.index'));
+            }
+
+            if ($user->isKeuangan()) {
+                return redirect()->intended(route('transactions.index'));
+            }
+
             return redirect()->intended(route('dashboard'));
         }
 

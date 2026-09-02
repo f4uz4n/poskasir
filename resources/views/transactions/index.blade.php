@@ -5,7 +5,12 @@
 @section('subheading', 'Semua penjualan toko')
 
 @section('content')
-<div class="card p-5">
+@if(auth()->user()->canAccessArea('void'))
+<div class="mb-4">
+    <a href="{{ route('transactions.void.create') }}" class="btn btn-danger text-sm">Batalkan transaksi (butuh password pimpinan)</a>
+</div>
+@endif
+<div id="transactions-app" class="card p-5" data-settings='@json($settings)'>
     <form method="GET" class="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <input type="text" name="q" value="{{ request('q') }}" class="input lg:col-span-2" placeholder="Cari invoice / pelanggan / meja">
         <div>
@@ -26,6 +31,8 @@
         </div>
     </form>
 
+    <p class="text-xs text-slate-500 mb-3">Klik nomor invoice untuk detail, cetak ulang, atau bagikan WhatsApp.</p>
+
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -43,8 +50,13 @@
             <tbody>
                 @forelse($transactions as $trx)
                     <tr class="border-b border-slate-100">
-                        <td class="py-3 pr-3 font-medium">
-                            {{ $trx->invoice_number }}
+                        <td class="py-3 pr-3">
+                            <button type="button"
+                                class="history-invoice-btn"
+                                data-transaction-show="{{ route('transactions.show', $trx) }}"
+                                title="Lihat detail struk">
+                                {{ $trx->invoice_number }}
+                            </button>
                             @if($trx->local_id)
                                 <div class="text-[10px] text-slate-400">offline: {{ \Illuminate\Support\Str::limit($trx->local_id, 12) }}</div>
                             @endif
@@ -70,7 +82,10 @@
                         </td>
                         <td class="py-3 pr-3 text-right font-semibold">Rp {{ number_format($trx->total, 0, ',', '.') }}</td>
                         <td class="py-3">
-                            @if($trx->status === 'completed')
+                            @if($trx->status === 'completed' && auth()->user()->canAccessArea('void'))
+                                <a href="{{ route('transactions.void.create', ['invoice' => $trx->invoice_number]) }}"
+                                    class="text-red-600 text-xs font-medium">Batalkan</a>
+                            @elseif($trx->status === 'completed' && auth()->user()->isStoreOwner())
                                 <form method="POST" action="{{ route('transactions.void', $trx) }}" onsubmit="return confirm('Batalkan transaksi? Stok akan dikembalikan.')">
                                     @csrf
                                     <button class="text-red-600 text-xs font-medium">Void</button>
@@ -86,4 +101,6 @@
     </div>
     <div class="mt-4">{{ $transactions->withQueryString()->links() }}</div>
 </div>
+
+@include('partials.transaction-detail-modal', ['showDetailBack' => false])
 @endsection

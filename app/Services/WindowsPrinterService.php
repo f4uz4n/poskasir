@@ -8,9 +8,16 @@ use Throwable;
 
 class WindowsPrinterService
 {
+    /** @var array<int,array{name:string,port:?string,driver:?string}>|null */
+    protected static ?array $printerListCache = null;
+
     /** @return array<int,array{name:string,port:?string,driver:?string}> */
     public function listPrinters(): array
     {
+        if (self::$printerListCache !== null) {
+            return self::$printerListCache;
+        }
+
         $printers = [];
         $seen = [];
 
@@ -57,7 +64,14 @@ class WindowsPrinterService
             ];
         }
 
+        self::$printerListCache = $printers;
+
         return $printers;
+    }
+
+    public function clearPrinterCache(): void
+    {
+        self::$printerListCache = null;
     }
 
     /** Semua printer Windows yang bukan virtual (PDF, OneNote, dll). */
@@ -80,7 +94,8 @@ class WindowsPrinterService
         $seen = [];
 
         $script = 'Get-CimInstance Win32_PnPEntity | Where-Object { '
-            .'$_.Name -match "print|Printing|Gprinter|Gainscha|Rongta|RPP|GP-|POS|thermal|58mm|80mm|USB.*Print" '
+            .'$_.Name -match "Gprinter|Gainscha|Rongta|RPP|GP-|POS-?58|POS58|thermal|58mm|80mm|USB Printing Support|58Printer" '
+            .'-and $_.Name -notmatch "PDF|OneNote|Fax|XPS|Root Print|Composite Bus|ACPI|Enumerator|No Printer" '
             .'} | Select-Object Name, DeviceID | ConvertTo-Json -Compress';
 
         foreach ($this->decodeJson($this->powershell($script)) as $row) {
@@ -224,7 +239,7 @@ class WindowsPrinterService
         }
 
         return (bool) preg_match(
-            '/pos|thermal|receipt|escpos|esc\s*pos|epson|tm-|xprinter|xp-|gprinter|gp-|gp58|58mb|gainscha|rongta|rpp|goojprt|hakpost|hprt|hpc|star|sm-|bixolon|srp-|citizen|zebra|tsc|gainscha|munbyn|imin|sunmi|bluetooth printer|printer\s*58|printer\s*80|58mm|80mm|generic\s*\/\s*text|usb printing support/i',
+            '/pos|pos-?58|pos-?80|pos58|pos80|thermal|receipt|escpos|esc\s*pos|epson|tm-|xprinter|xp-|gprinter|gp-|gp58|58mb|gainscha|rongta|rpp|goojprt|hakpost|hprt|hpc|star|sm-|bixolon|srp-|citizen|zebra|tsc|gainscha|munbyn|imin|sunmi|bluetooth printer|printer\s*58|printer\s*80|58mm|80mm|generic\s*\/\s*text|usb printing support/i',
             $blob
         );
     }
@@ -234,6 +249,19 @@ class WindowsPrinterService
         $name = trim((string) $name);
         if ($name === '') {
             return null;
+        }
+
+        $escaped = str_replace("'", "''", $name);
+        $script = "Get-Printer -Name '$escaped' -ErrorAction SilentlyContinue | Select-Object Name, PortName, DriverName | ConvertTo-Json -Compress";
+        foreach ($this->decodeJson($this->powershell($script)) as $row) {
+            $found = trim((string) ($row['Name'] ?? ''));
+            if ($found !== '') {
+                return [
+                    'name' => $found,
+                    'port' => $row['PortName'] ?? null,
+                    'driver' => $row['DriverName'] ?? null,
+                ];
+            }
         }
 
         foreach ($this->listPrinters() as $printer) {
@@ -358,6 +386,16 @@ class WindowsPrinterService
             }
         }
 
+        // Prioritas nama umum 58mm
+        foreach ($printers as $printer) {
+            if ($this->isVirtualPrinter($printer)) {
+                continue;
+            }
+            if (preg_match('/^POS-?58$/i', (string) ($printer['name'] ?? ''))) {
+                return $printer;
+            }
+        }
+
         foreach ($printers as $printer) {
             if (preg_match('/^USB\d+/i', (string) $printer['port']) && ! $this->isVirtualPrinter($printer)) {
                 return $printer;
@@ -367,7 +405,7 @@ class WindowsPrinterService
         return null;
     }
 
-    /** Driver OEM (Gprinter dll.) — Word bisa cetak, RAW ESC/POS sering tidak keluar. */
+    /** Driver OEM (POS-58, Gprinter, dll.) — Word bisa cetak, RAW ESC/POS sering tidak keluar. */
     public function prefersDriverRender(array $printer): bool
     {
         if ($this->isVirtualPrinter($printer)) {
@@ -378,7 +416,26 @@ class WindowsPrinterService
             return false;
         }
 
-        return $this->prefersDirectPort($printer);
+        // Printer thermal terpasang di Windows dengan driver resmi → cetak lewat driver (seperti Word)
+        if ($this->isLikelyPosPrinter($printer)) {
+            return true;
+        }
+
+        return $this->prefersDirectPort($printer) || $this->hasCustomPort($printer);
+    }
+
+    /** RAW winspool sering "sukses" tanpa kertas keluar pada driver OEM — lewati RAW. */
+    protected function shouldSkipRawSpool(?array $printer): bool
+    {
+        if ($printer === null) {
+            return false;
+        }
+
+        if ($this->isGenericTextDriver($printer)) {
+            return false;
+        }
+
+        return $this->isLikelyPosPrinter($printer) || $this->requiresDriverByName($printer);
     }
 
     protected function resolveRenderMode(?array $extra = null): string
@@ -407,19 +464,21 @@ class WindowsPrinterService
         return $meta !== null && $this->prefersDriverRender($meta);
     }
 
-    protected function writeDriverText(string $printerName, string $text): void
+    protected function writeDriverText(string $printerName, string $text, int $paperWidth = 58): void
     {
         $printerName = trim($printerName);
         if ($printerName === '') {
             throw new \RuntimeException('Nama printer kosong.');
         }
 
+        $paperWidth = $paperWidth === 80 ? 80 : 58;
+
         $tmp = tempnam(sys_get_temp_dir(), 'kftxt');
         if ($tmp === false) {
             throw new \RuntimeException('Tidak bisa membuat file sementara untuk cetak teks.');
         }
         $txt = $tmp.'.txt';
-        file_put_contents($txt, "\xEF\xBB\xBF".$text);
+        file_put_contents($txt, $text);
         @unlink($tmp);
 
         $script = base_path('scripts/windows-text-print.ps1');
@@ -434,25 +493,52 @@ class WindowsPrinterService
             $printerName,
             '-FilePath',
             $txt,
+            '-PaperWidth',
+            (string) $paperWidth,
         ]);
-        $process->setTimeout(20);
+        $process->setTimeout(15);
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->writeDriverTextDetached($process, $txt);
+
+            return;
+        }
+
         $process->run();
-        @unlink($txt);
 
         if (! $process->isSuccessful()) {
             throw new \RuntimeException(trim($process->getErrorOutput().' '.$process->getOutput()) ?: 'Cetak driver gagal');
         }
     }
 
+    protected function writeDriverTextDetached(Process $process, string $txtPath): void
+    {
+        $cmdLine = $process->getCommandLine();
+        $logPath = storage_path('logs/print-jobs.log');
+        $wrapper = 'cmd /c start "" /B '.$cmdLine.' >> '.escapeshellarg($logPath).' 2>&1';
+        $handle = @popen($wrapper, 'r');
+        if ($handle === false) {
+            $process->run();
+            if (! $process->isSuccessful()) {
+                throw new \RuntimeException(trim($process->getErrorOutput().' '.$process->getOutput()) ?: 'Cetak driver gagal');
+            }
+
+            return;
+        }
+        pclose($handle);
+        // File temp dibiarkan — windows-text-print.ps1 yang baca lalu hapus.
+        // Menghapus dari PHP terlalu cepat = PowerShell "File struk tidak ditemukan".
+    }
+
     /** @return array{ok:bool,via:string,target:string}|null */
-    protected function tryDriverTextTargets(array $names, string $plainText, array &$errors): ?array
+    protected function tryDriverTextTargets(array $names, string $plainText, array &$errors, int $paperWidth = 58): ?array
     {
         foreach (array_values(array_unique(array_filter(array_map('trim', $names)))) as $name) {
             if ($name === '' || $this->isVirtualPrinter(['name' => $name])) {
                 continue;
             }
             try {
-                $this->writeDriverText($name, $plainText);
+                $this->writeDriverText($name, $plainText, $paperWidth);
 
                 return ['ok' => true, 'via' => 'windows-driver', 'target' => $name];
             } catch (Throwable $e) {
@@ -461,6 +547,39 @@ class WindowsPrinterService
         }
 
         return null;
+    }
+
+    protected function escPosToPlainText(string $bytes): string
+    {
+        $text = preg_replace('/\x1b[@-Z\\\\-_]|\x1b\[[0-?]*[ -\/]*[@-~]/', '', $bytes) ?? '';
+        $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text) ?? '';
+
+        return trim($text);
+    }
+
+    protected function resolvePlainTextForDriver(
+        ?string $plainText,
+        string $bytes,
+        ?array $meta,
+        ?array $settingsExtra,
+    ): ?string {
+        if ($plainText !== null && trim($plainText) !== '') {
+            return $plainText;
+        }
+
+        if ($meta !== null && ($this->requiresDriverByName($meta) || $this->prefersDriverRender($meta))) {
+            $stripped = $this->escPosToPlainText($bytes);
+            if ($stripped !== '') {
+                return $stripped;
+            }
+        }
+
+        $renderMode = $this->resolveRenderMode($settingsExtra);
+        if ($renderMode === 'driver') {
+            return 'Struk KasirFlow';
+        }
+
+        return $plainText;
     }
 
     public function printRaw(
@@ -474,6 +593,8 @@ class WindowsPrinterService
     ): array {
         $errors = [];
         $renderMode = $this->resolveRenderMode($settingsExtra);
+        $paperWidth = (int) ($settingsExtra['paper_width'] ?? 58);
+        $paperWidth = $paperWidth === 80 ? 80 : 58;
         $explicit = $printerName ? trim($printerName) : '';
         $com = $comPort ? strtoupper(trim($comPort)) : null;
         $usb = $usbPort ? strtoupper(trim($usbPort)) : null;
@@ -488,13 +609,52 @@ class WindowsPrinterService
             $explicit = '';
         }
 
+        $driverNames = array_values(array_filter(array_unique([
+            $explicit,
+            trim((string) ($settingsExtra['windows_printer'] ?? '')),
+            trim((string) ($settingsExtra['printer_name'] ?? '')),
+        ])));
+
+        if ($plainText !== null && trim($plainText) !== '' && $driverNames !== []) {
+            $tryDriver = $renderMode === 'driver';
+            foreach ($driverNames as $candidate) {
+                if (preg_match('/^POS-?58$/i', (string) $candidate)) {
+                    $tryDriver = true;
+                    break;
+                }
+            }
+            if ($tryDriver) {
+                $driver = $this->tryDriverTextTargets($driverNames, $plainText, $errors, $paperWidth);
+                if ($driver) {
+                    return $driver;
+                }
+            }
+        }
+
         $meta = $explicit !== '' ? $this->findPrinter($explicit) : null;
+        $plainText = $this->resolvePlainTextForDriver($plainText, $bytes, $meta, $settingsExtra);
         $portTargets = $this->collectPortTargets($meta, $com, $usb);
-        $driverNames = array_filter([$explicit, $meta['name'] ?? null]);
+        if ($explicit === '' && $driverNames !== []) {
+            $explicit = $driverNames[0];
+            $meta = $this->findPrinter($explicit) ?: $meta;
+        }
+        $driverNames = array_values(array_filter(array_unique([
+            $explicit,
+            $meta['name'] ?? null,
+            trim((string) ($settingsExtra['windows_printer'] ?? '')),
+            trim((string) ($settingsExtra['printer_name'] ?? '')),
+        ])));
+        if ($meta && preg_match('/^POS-?58$/i', (string) ($meta['name'] ?? ''))) {
+            $text = $plainText ?? $this->escPosToPlainText($bytes) ?: "Struk KasirFlow\r\n\r\n";
+            $driver = $this->tryDriverTextTargets($driverNames, $text, $errors, $paperWidth);
+            if ($driver) {
+                return $driver;
+            }
+        }
 
         // 0) Mode driver — sama seperti cetak dari Word (driver Windows yang sudah terpasang)
         if ($this->shouldTryDriverFirst($meta, $renderMode, $plainText)) {
-            $driver = $this->tryDriverTextTargets($driverNames, $plainText, $errors);
+            $driver = $this->tryDriverTextTargets($driverNames, $plainText, $errors, $paperWidth);
             if ($driver) {
                 return $driver;
             }
@@ -516,8 +676,8 @@ class WindowsPrinterService
             }
         }
 
-        // 3) Windows spooler RAW (lewati jika printer pakai port OEM — RAW palsu sukses tanpa cetak)
-        $skipRaw = $meta !== null && $this->requiresDriverByName($meta);
+        // 3) Windows spooler RAW — lewati driver OEM (POS-58, Gprinter, dll.)
+        $skipRaw = $this->shouldSkipRawSpool($meta);
         if ($explicit !== '' && ! $this->isVirtualPrinter(['name' => $explicit]) && $renderMode !== 'driver' && ! $skipRaw) {
             try {
                 $this->writeWinspool($explicit, $bytes);
@@ -537,11 +697,12 @@ class WindowsPrinterService
 
             if ($meta && ! empty($meta['port']) && preg_match('/^(USB\d+|COM\d+)/i', (string) $meta['port'], $m)) {
                 try {
-                    $this->writePort($m[1], $bytes, $baud);
+                    $port = strtoupper($m[0]);
+                    $this->writePort($port, $bytes, $baud);
 
-                    return ['ok' => true, 'via' => 'port-fallback', 'target' => strtoupper($m[1])];
+                    return ['ok' => true, 'via' => 'port-fallback', 'target' => $port];
                 } catch (Throwable $e) {
-                    $errors[] = 'Port '.$m[1].': '.$e->getMessage();
+                    $errors[] = 'Port '.$m[0].': '.$e->getMessage();
                 }
             }
         }
@@ -552,7 +713,7 @@ class WindowsPrinterService
             $driverNames[] = $target['name'];
 
             if ($this->shouldTryDriverFirst($target, $renderMode, $plainText)) {
-                $driver = $this->tryDriverTextTargets([$target['name']], $plainText, $errors);
+                $driver = $this->tryDriverTextTargets([$target['name']], $plainText, $errors, $paperWidth);
                 if ($driver) {
                     return $driver;
                 }
@@ -565,7 +726,7 @@ class WindowsPrinterService
                 }
             }
 
-            if ($renderMode !== 'driver' && ! $this->requiresDriverByName($target)) {
+            if ($renderMode !== 'driver' && ! $this->shouldSkipRawSpool($target)) {
                 try {
                     $this->writeWinspool($target['name'], $bytes);
 
@@ -622,7 +783,7 @@ class WindowsPrinterService
 
         // Fallback terakhir: cetak teks lewat driver (seperti Word)
         if ($plainText !== null && trim($plainText) !== '') {
-            $driver = $this->tryDriverTextTargets($driverNames, $plainText, $errors);
+            $driver = $this->tryDriverTextTargets($driverNames, $plainText, $errors, $paperWidth);
             if ($driver) {
                 return $driver;
             }

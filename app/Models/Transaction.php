@@ -24,6 +24,9 @@ class Transaction extends Model
         'change',
         'payment_method',
         'status',
+        'voided_by',
+        'voided_at',
+        'void_reason',
         'is_synced',
         'notes',
         'sold_at',
@@ -40,6 +43,7 @@ class Transaction extends Model
             'change' => 'decimal:2',
             'is_synced' => 'boolean',
             'sold_at' => 'datetime',
+            'voided_at' => 'datetime',
         ];
     }
 
@@ -51,6 +55,11 @@ class Transaction extends Model
     public function cashier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cashier_id');
+    }
+
+    public function voidedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'voided_by');
     }
 
     public function items(): HasMany

@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature' => \App\Http\Middleware\EnsureFeature::class,
             'owner' => \App\Http\Middleware\EnsureStoreOwner::class,
             'developer' => \App\Http\Middleware\EnsureDeveloper::class,
+            'staff.area' => \App\Http\Middleware\EnsureStaffArea::class,
             'api.token' => \App\Http\Middleware\AuthenticateApiToken::class,
             'api.sync' => \App\Http\Middleware\EnsureApiSyncFeature::class,
         ]);

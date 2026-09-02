@@ -50,7 +50,7 @@ class SettingController extends Controller
     public function update(Request $request)
     {
         $user = Auth::user();
-        abort_unless($user->isStoreOwner(), 403);
+        abort_unless($user->canAccessArea('settings'), 403);
 
         $data = $request->validate([
             'store_name' => ['required', 'string', 'max:255'],
@@ -64,12 +64,13 @@ class SettingController extends Controller
             'printer_type' => ['nullable', 'in:bluetooth,usb,none,auto'],
             'printer_name' => ['nullable', 'string', 'max:255'],
             'paper_width' => ['nullable', 'in:58,80'],
-            'printer_profile' => ['nullable', 'in:auto,rpp02n,hakpost,generic58,gp58mb,generic80,xprinter,gprinter,epson,star,bixolon'],
+            'printer_profile' => ['nullable', 'in:auto,rpp02n,hakpost,generic58,gp58mb,pos58,generic80,xprinter,gprinter,epson,star,bixolon'],
             'printer_baud' => ['nullable', 'in:9600,19200,38400,57600,115200'],
             'printer_auto_cut' => ['nullable', 'boolean'],
             'printer_usb_mode' => ['nullable', 'in:windows,serial,webusb'],
             'windows_printer' => ['nullable', 'string', 'max:255'],
             'com_port' => ['nullable', 'string', 'max:20'],
+            'usb_port' => ['nullable', 'string', 'max:20'],
             'cash_drawer' => ['nullable', 'boolean'],
             'cash_drawer_when' => ['nullable', 'in:cash,always'],
             'cash_drawer_pin' => ['nullable', 'in:both,2,5'],
@@ -87,6 +88,9 @@ class SettingController extends Controller
         $extra['printer_usb_mode'] = $data['printer_usb_mode'] ?? 'windows';
         $extra['windows_printer'] = $data['windows_printer'] ?? null;
         $extra['com_port'] = $data['com_port'] ?? null;
+        if (! empty($data['usb_port'])) {
+            $extra['usb_port'] = strtoupper(trim((string) $data['usb_port']));
+        }
         $extra['cash_drawer'] = $request->boolean('cash_drawer');
         $extra['cash_drawer_when'] = $data['cash_drawer_when'] ?? 'cash';
         $extra['cash_drawer_pin'] = $data['cash_drawer_pin'] ?? '2';
@@ -106,6 +110,10 @@ class SettingController extends Controller
             } elseif ($usbName !== '') {
                 $extra['windows_printer'] = $usbName;
                 $data['printer_name'] = $usbName;
+                $extra['printer_usb_render'] = 'driver';
+                if (preg_match('/^POS-?58$/i', $usbName)) {
+                    $extra['printer_profile'] = 'pos58';
+                }
                 if (empty($extra['cash_drawer_windows_printer'])) {
                     $extra['cash_drawer_windows_printer'] = $usbName;
                 }
@@ -116,7 +124,7 @@ class SettingController extends Controller
             if (! empty($extra['windows_printer'])) {
                 $printerMeta = app(WindowsPrinterService::class)->findPrinter($extra['windows_printer']);
                 if ($printerMeta && preg_match('/^USB\d+/i', (string) ($printerMeta['port'] ?? ''), $m)) {
-                    $extra['usb_port'] = strtoupper($m[1]);
+                    $extra['usb_port'] = strtoupper($m[0]);
                 }
             }
             $extra['printer_usb_mode'] = $extra['printer_usb_mode'] ?: 'windows';
@@ -141,7 +149,11 @@ class SettingController extends Controller
         $data['extra'] = $extra;
 
         if (($data['printer_type'] ?? null) === 'auto') {
-            $data['printer_type'] = ! empty($extra['windows_printer']) ? 'usb' : 'bluetooth';
+            $data['printer_type'] = 'bluetooth';
+        }
+
+        if (($data['printer_type'] ?? '') === 'bluetooth') {
+            $extra['printer_usb_mode'] = $extra['printer_usb_mode'] ?? 'windows';
         }
 
         if ($user->hasFeature('kunci_stok')) {
@@ -193,7 +205,7 @@ class SettingController extends Controller
     public function updatePrinter(Request $request)
     {
         $user = Auth::user();
-        abort_unless($user->isStoreOwner(), 403);
+        abort_unless($user->canAccessArea('settings'), 403);
 
         $owner = $user->storeOwner();
         abort_unless($owner, 403);
@@ -203,6 +215,7 @@ class SettingController extends Controller
             'printer_name' => ['nullable', 'string', 'max:255'],
             'windows_printer' => ['nullable', 'string', 'max:255'],
             'com_port' => ['nullable', 'string', 'max:20'],
+            'usb_port' => ['nullable', 'string', 'max:20'],
             'printer_usb_mode' => ['nullable', 'in:windows,serial,webusb'],
             'paper_width' => ['nullable', 'in:58,80'],
             'printer_auto_cut' => ['nullable', 'boolean'],
@@ -224,6 +237,7 @@ class SettingController extends Controller
         $name = trim((string) ($data['printer_name'] ?? ''));
         $windows = trim((string) ($data['windows_printer'] ?? ''));
         $com = strtoupper(trim((string) ($data['com_port'] ?? '')));
+        $usb = strtoupper(trim((string) ($data['usb_port'] ?? '')));
 
         if ($type === 'usb') {
             $target = $windows ?: $name;
@@ -238,10 +252,19 @@ class SettingController extends Controller
                 if ($com !== '') {
                     $extra['com_port'] = $com;
                 }
+                $extra['printer_usb_render'] = 'driver';
+                if (preg_match('/^POS-?58$/i', $target)) {
+                    $extra['printer_profile'] = 'pos58';
+                }
                 $printerMeta = app(WindowsPrinterService::class)->findPrinter($target);
                 if ($printerMeta && preg_match('/^USB\d+/i', (string) ($printerMeta['port'] ?? ''), $m)) {
-                    $extra['usb_port'] = strtoupper($m[1]);
+                    $extra['usb_port'] = strtoupper($m[0]);
+                } elseif ($usb !== '') {
+                    $extra['usb_port'] = $usb;
                 }
+            }
+            if ($usb !== '' && empty($extra['usb_port'])) {
+                $extra['usb_port'] = $usb;
             }
             $extra['printer_usb_mode'] = $data['printer_usb_mode'] ?? 'windows';
             if (empty($extra['cash_drawer_windows_printer']) && ! empty($extra['windows_printer'])) {

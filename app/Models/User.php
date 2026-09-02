@@ -15,6 +15,8 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
+    public const STAFF_ROLES = ['kasir', 'keuangan', 'administrator'];
+
     protected $fillable = [
         'owner_id',
         'name',
@@ -86,14 +88,69 @@ class User extends Authenticatable
         return $this->role === 'owner' && blank($this->owner_id);
     }
 
+    public function isStaff(): bool
+    {
+        return filled($this->owner_id) && $this->role !== 'developer';
+    }
+
     public function isKasir(): bool
     {
-        return $this->role === 'kasir' || filled($this->owner_id);
+        return $this->role === 'kasir';
+    }
+
+    public function isKeuangan(): bool
+    {
+        return $this->role === 'keuangan';
+    }
+
+    public function isAdministrator(): bool
+    {
+        return $this->role === 'administrator';
     }
 
     public function isDeveloper(): bool
     {
         return $this->role === 'developer';
+    }
+
+    public function canManageStaff(): bool
+    {
+        return $this->isStoreOwner() || $this->isAdministrator();
+    }
+
+    public function canAccessArea(string $area): bool
+    {
+        if ($this->isDeveloper()) {
+            return false;
+        }
+
+        if ($this->isStoreOwner()) {
+            return true;
+        }
+
+        return match ($area) {
+            'dashboard' => true,
+            'pos' => $this->isKasir() || $this->isAdministrator(),
+            'inventory' => $this->isAdministrator(),
+            'finance' => $this->isKeuangan() || $this->isAdministrator(),
+            'reports' => $this->isKeuangan() || $this->isAdministrator(),
+            'settings' => $this->isAdministrator(),
+            'staff' => $this->isAdministrator(),
+            'void' => $this->isKasir() || $this->isKeuangan() || $this->isAdministrator(),
+            default => false,
+        };
+    }
+
+    public function roleLabel(): string
+    {
+        return match ($this->role) {
+            'owner' => 'Pimpinan Toko',
+            'administrator' => 'Administrator',
+            'keuangan' => 'Keuangan',
+            'kasir' => 'Kasir',
+            'developer' => 'Developer',
+            default => ucfirst((string) $this->role),
+        };
     }
 
     /** ID pemilik toko (untuk scoping data). */

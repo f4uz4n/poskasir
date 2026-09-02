@@ -44,6 +44,7 @@ const PROFILES = {
     hakpost: { chunkSize: 20, chunkDelay: 30, autoCut: false, paper: 58, baud: 9600, mapping: 'youku' },
     generic58: { chunkSize: 20, chunkDelay: 30, autoCut: false, paper: 58, baud: 9600, mapping: 'pos-5890' },
     gp58mb: { chunkSize: 20, chunkDelay: 30, autoCut: false, paper: 58, baud: 9600, mapping: 'pos-5890' },
+    pos58: { chunkSize: 20, chunkDelay: 12, autoCut: false, paper: 58, baud: 9600, mapping: 'pos-5890' },
     generic80: { chunkSize: 20, chunkDelay: 20, autoCut: true, paper: 80, baud: 115200, mapping: 'xprinter' },
     xprinter: { chunkSize: 20, chunkDelay: 20, autoCut: true, paper: 80, baud: 9600, mapping: 'xprinter' },
     gprinter: { chunkSize: 20, chunkDelay: 25, autoCut: true, paper: 80, baud: 9600, mapping: 'xprinter' },
@@ -60,22 +61,66 @@ function money(n) {
     return 'Rp ' + Number(n || 0).toLocaleString('id-ID');
 }
 
+function moneyShort(n) {
+    return Number(n || 0).toLocaleString('id-ID');
+}
+
+/** Qty rapat dengan harga satuan — format struk thermal standar */
+function formatItemQtyPrice(qty, price) {
+    const q = Number(qty) || 0;
+    return `${q}x ${moneyShort(price)}`;
+}
+
 function padLine(left, right, width) {
     const l = String(left ?? '');
     const r = String(right ?? '');
-    const space = Math.max(1, width - l.length - r.length);
-
-    return l + ' '.repeat(space) + r;
+    if (l.length + r.length + 1 <= width) {
+        return l + ' '.repeat(width - l.length - r.length) + r;
+    }
+    const maxLeft = Math.max(0, width - r.length - 1);
+    const trimmed = l.slice(0, maxLeft);
+    if (trimmed.length + r.length + 1 <= width) {
+        return trimmed + ' '.repeat(width - trimmed.length - r.length) + r;
+    }
+    return r.padStart(width);
 }
 
-function columnsFor(paper) {
-    return Number(paper) === 80 ? 48 : 32;
+/** Baris label + nominal — pecah ke 2 baris jika tidak muat (58mm). */
+function padLineMulti(left, right, width) {
+    const l = String(left ?? '');
+    const r = String(right ?? '');
+    if (l.length + r.length + 1 <= width) {
+        return [padLine(l, r, width)];
+    }
+    const lines = [];
+    let rem = l;
+    while (rem.length > width) {
+        lines.push(rem.slice(0, width));
+        rem = rem.slice(width);
+    }
+    if (rem.length + r.length + 1 <= width) {
+        lines.push(padLine(rem, r, width));
+    } else {
+        if (rem) lines.push(rem.slice(0, width));
+        lines.push(r);
+    }
+    return lines;
+}
+
+function columnsFor(paper, settings = null) {
+    if (Number(paper) === 80) return 48;
+    const isDriverText = settings && (
+        settings.extra?.printer_usb_render === 'driver'
+        || (settings.printer_type === 'usb' && settings.extra?.printer_usb_mode !== 'serial')
+    );
+    return isDriverText ? 24 : 32;
 }
 
 function detectProfileKey(name = '', paperWidth = 58) {
     const n = String(name || '').toLowerCase();
     if (/hakpost|hprt|hpc|sprt/i.test(n)) return 'hakpost';
     if (/gp-?58|gp58|58mb|gainscha.*58/i.test(n)) return 'gp58mb';
+    if (/^pos-?58$|pos58|pos-58/i.test(n)) return 'pos58';
     if (/rpp|rongta|goojprt|mtp-|zjiang|zhongyi|inner|printer058/i.test(n)) return 'rpp02n';
     if (/xprinter|xp-|zj-/i.test(n)) return 'xprinter';
     if (/gprinter|gp-|gainscha|gs-/i.test(n)) return Number(paperWidth) === 80 ? 'gprinter' : 'gp58mb';
@@ -186,9 +231,15 @@ function paymentLabel(method = '') {
     return method || '-';
 }
 
+function wrapTextLine(text, maxLen) {
+    const s = String(text ?? '');
+    if (s.length <= maxLen) return s;
+    return s.slice(0, maxLen);
+}
+
 export function buildReceiptText(transaction, settings = {}, profile = null) {
     const resolved = profile || resolveProfile(settings);
-    const cols = columnsFor(resolved.paper);
+    const cols = columnsFor(resolved.paper, settings);
     const header = settings.receipt_header || settings.store_name || 'KasirFlow';
     const footer = settings.receipt_footer || 'Terima kasih';
     const soldAt = transaction.sold_at
@@ -196,12 +247,15 @@ export function buildReceiptText(transaction, settings = {}, profile = null) {
         : new Date().toLocaleString('id-ID');
     const lines = [];
 
-    const push = (t = '') => lines.push(String(t));
+    const push = (t = '') => lines.push(wrapTextLine(t, cols));
+    const pushTitle = (t) => lines.push(`@@T@@${String(t ?? '').trim()}`);
+    const pushCenter = (t) => lines.push(`@@C@@${wrapTextLine(t, cols)}`);
+    const pushMoney = (label, amount) => padLineMulti(label, amount, cols).forEach((ln) => push(ln));
     const rule = () => push('-'.repeat(cols));
 
-    push(header.toUpperCase());
-    if (settings.store_address) push(settings.store_address);
-    if (settings.store_phone) push(settings.store_phone);
+    pushTitle(header.toUpperCase());
+    if (settings.store_address) pushCenter(settings.store_address);
+    if (settings.store_phone) pushCenter(settings.store_phone);
     rule();
     push(`No   : ${transaction.invoice_number || transaction.local_id || '-'}`);
     push(`Tgl  : ${soldAt}`);
@@ -213,27 +267,29 @@ export function buildReceiptText(transaction, settings = {}, profile = null) {
     rule();
 
     (transaction.items || []).forEach((item) => {
-        push(item.product_name || '-');
-        push(padLine(
-            `  ${item.qty} x ${money(item.price)}`,
+        const raw = String(item.product_name || '-');
+        for (let i = 0; i < raw.length; i += cols) {
+            push(raw.slice(i, i + cols));
+        }
+        pushMoney(
+            formatItemQtyPrice(item.qty, item.price),
             money(item.subtotal ?? (item.qty * item.price)),
-            cols,
-        ));
+        );
     });
 
     rule();
-    push(padLine('Subtotal', money(transaction.subtotal), cols));
-    if (Number(transaction.discount) > 0) push(padLine('Diskon', money(transaction.discount), cols));
-    if (Number(transaction.tax) > 0) push(padLine('Pajak', money(transaction.tax), cols));
-    push(padLine('TOTAL', money(transaction.total), cols));
-    push(padLine(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid), cols));
-    push(padLine('Kembali', money(transaction.change), cols));
+    pushMoney('Subtotal', money(transaction.subtotal));
+    if (Number(transaction.discount) > 0) pushMoney('Diskon', money(transaction.discount));
+    if (Number(transaction.tax) > 0) pushMoney('Pajak', money(transaction.tax));
+    pushMoney('TOTAL', money(transaction.total));
+    pushMoney(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid));
+    pushMoney('Kembali', money(transaction.change));
     rule();
     String(footer || 'Terima kasih')
         .split(/\r\n|\n|\r/)
         .map((line) => line.trim())
         .filter((line) => line.length > 0)
-        .forEach((line) => push(line));
+        .forEach((line) => pushCenter(line));
     push('');
     push('');
     push('');
@@ -276,7 +332,7 @@ export function buildReceipt(transaction, settings = {}, profile = null, options
             console.warn('Logo struk gagal dicetak', e);
         }
     }
-    encoder.bold(true).line(header).bold(false);
+    encoder.bold(true).line(header.toUpperCase()).bold(false);
     if (settings.store_address) encoder.line(settings.store_address);
     if (settings.store_phone) encoder.line(settings.store_phone);
     encoder.align('left').line('-'.repeat(cols));
@@ -291,20 +347,26 @@ export function buildReceipt(transaction, settings = {}, profile = null, options
 
     (transaction.items || []).forEach((item) => {
         encoder.line(item.product_name || '-');
-        encoder.line(padLine(
-            `  ${item.qty} x ${money(item.price)}`,
+        padLineMulti(
+            formatItemQtyPrice(item.qty, item.price),
             money(item.subtotal ?? (item.qty * item.price)),
             cols,
-        ));
+        ).forEach((ln) => encoder.line(ln));
     });
 
     encoder.line('-'.repeat(cols));
-    encoder.line(padLine('Subtotal', money(transaction.subtotal), cols));
-    if (Number(transaction.discount) > 0) encoder.line(padLine('Diskon', money(transaction.discount), cols));
-    if (Number(transaction.tax) > 0) encoder.line(padLine('Pajak', money(transaction.tax), cols));
-    encoder.bold(true).line(padLine('TOTAL', money(transaction.total), cols)).bold(false);
-    encoder.line(padLine(`Bayar (${transaction.payment_method || '-'})`, money(transaction.paid), cols));
-    encoder.line(padLine('Kembali', money(transaction.change), cols));
+    padLineMulti('Subtotal', money(transaction.subtotal), cols).forEach((ln) => encoder.line(ln));
+    if (Number(transaction.discount) > 0) {
+        padLineMulti('Diskon', money(transaction.discount), cols).forEach((ln) => encoder.line(ln));
+    }
+    if (Number(transaction.tax) > 0) {
+        padLineMulti('Pajak', money(transaction.tax), cols).forEach((ln) => encoder.line(ln));
+    }
+    encoder.bold(true);
+    padLineMulti('TOTAL', money(transaction.total), cols).forEach((ln) => encoder.line(ln));
+    encoder.bold(false);
+    padLineMulti(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid), cols).forEach((ln) => encoder.line(ln));
+    padLineMulti('Kembali', money(transaction.change), cols).forEach((ln) => encoder.line(ln));
     encoder.line('-'.repeat(cols));
     encoder.align('center');
     String(footer || 'Terima kasih')
@@ -362,10 +424,35 @@ class PosPrinter {
 
     setSettings(settings = {}) {
         this.settings = settings || {};
+        const prefer = this.settings.printer_type || 'bluetooth';
+        if (prefer === 'bluetooth' && this.type === 'windows') {
+            this.type = null;
+            this.windowsPrinter = null;
+            this.comPort = null;
+            this.usbPort = null;
+        }
+        if (prefer === 'usb' && this.type === 'bluetooth') {
+            this.type = null;
+        }
         this.profile = resolveProfile(this.settings, this.btDevice?.name);
     }
 
     isConnected() {
+        const prefer = this.settings.printer_type || 'bluetooth';
+        if (prefer === 'usb') {
+            if (this.type === 'windows' && (this.windowsPrinter || this.comPort)) return true;
+            const extra = this.settings.extra || {};
+            const name = extra.windows_printer || this.settings.printer_name || this.windowsPrinter;
+            const com = extra.com_port || this.comPort;
+            return Boolean(name || com);
+        }
+        if (prefer === 'bluetooth') {
+            if (this.type === 'bluetooth' && this.btCharacteristic) {
+                return Boolean(this.btDevice?.gatt?.connected);
+            }
+
+            return false;
+        }
         if (this.type === 'bluetooth' && this.btCharacteristic) {
             return Boolean(this.btDevice?.gatt?.connected);
         }
@@ -489,6 +576,9 @@ class PosPrinter {
     }
 
     async connectBluetooth() {
+        if (!window.isSecureContext) {
+            throw new Error('Bluetooth membutuhkan HTTPS atau localhost. Buka lewat https:// atau http://127.0.0.1');
+        }
         if (!navigator.bluetooth) {
             throw new Error('Web Bluetooth tidak didukung. Gunakan Chrome/Edge (HTTPS atau localhost).');
         }
@@ -646,8 +736,8 @@ class PosPrinter {
         if (type === 'none') return false;
 
         if (type === 'usb') {
-            if (this.isConnected() && this.type === 'windows' && this.windowsPrinter) return true;
-            await this.connectWindowsUsb();
+            if (this.isConnected() && this.type === 'windows') return true;
+            await this.connectWindowsUsb({ refresh: false });
             OfflineStore.saveDeviceSettings({
                 printer_type: 'usb',
                 printer_name: this.windowsPrinter || this.settings.printer_name || '',
@@ -663,7 +753,7 @@ class PosPrinter {
         }
 
         if (this.isConnected() && this.type === 'bluetooth') return true;
-        return this.reconnectBluetoothPersistent({ tries: 4, gapMs: 600 });
+        return this.reconnectBluetoothPersistent({ tries: 3, gapMs: 400 });
     }
 
     buildPrinterOptionList(devices = {}) {
@@ -752,7 +842,7 @@ class PosPrinter {
                 this.windowsPrinter = isCom ? null : thermal.name;
                 this.comPort = isCom ? thermal.name.toUpperCase() : (this.comPort || null);
                 this.usbPort = usbPort;
-                await this.connectWindowsUsb();
+                await this.connectWindowsUsb({ refresh: false });
                 OfflineStore.saveDeviceSettings({
                     printer_type: 'usb',
                     printer_name: thermal.name,
@@ -869,6 +959,9 @@ class PosPrinter {
             return devices.suggested;
         }
 
+        const pos58 = list.find((p) => /^POS-?58$/i.test(String(p?.name || '')));
+        if (pos58 && !isVirtual(pos58)) return pos58;
+
         const preferred = this.settings.extra?.com_port
             || this.settings.extra?.windows_printer
             || this.settings.printer_name;
@@ -892,19 +985,62 @@ class PosPrinter {
         return null;
     }
 
+    applyUsbFromSettings() {
+        const extra = this.settings.extra || {};
+        let suggested = extra.windows_printer || this.settings.printer_name || this.windowsPrinter || null;
+        let com = extra.com_port || this.comPort || null;
+        let usb = extra.usb_port || this.usbPort || null;
+
+        if (suggested && /^COM\d+$/i.test(suggested)) {
+            com = suggested.toUpperCase();
+            suggested = null;
+        }
+
+        if (!suggested && !com) return false;
+
+        this.windowsPrinter = suggested || null;
+        this.comPort = com || null;
+        this.usbPort = usb || null;
+        this.type = 'windows';
+        this.settings = {
+            ...this.settings,
+            printer_type: 'usb',
+            printer_name: this.windowsPrinter || this.comPort || this.settings.printer_name || '',
+            printer_setup_done: true,
+            extra: {
+                ...(this.settings.extra || {}),
+                windows_printer: suggested || this.settings.extra?.windows_printer || null,
+                com_port: this.comPort,
+                usb_port: this.usbPort,
+                printer_usb_mode: 'windows',
+            },
+        };
+        this.emitStatus();
+        return true;
+    }
+
     async ensureConnected() {
-        if (this.isConnected()) return true;
+        if (this.isConnected()) {
+            const type = this.settings.printer_type || 'bluetooth';
+            if (type === 'usb' && this.type !== 'windows') {
+                this.applyUsbFromSettings();
+            }
+            return true;
+        }
         const type = this.settings.printer_type || 'bluetooth';
         if (type === 'none') {
             throw new Error('Printer dimatikan di Pengaturan.');
         }
         if (type === 'usb') {
-            await this.connectWindowsUsb();
-            this.type = 'windows';
+            if (this.applyUsbFromSettings()) return true;
+            await this.connectWindowsUsb({ refresh: false });
+            if (!this.windowsPrinter && !this.comPort) {
+                throw new Error('Printer USB belum dipilih. Pengaturan → pilih printer Windows → Simpan.');
+            }
             return true;
         }
 
-        const ok = await this.reconnectBluetoothPersistent({ tries: 5, gapMs: 700 });
+        const ok = await this.reconnectBluetoothPersistent({ tries: 3, gapMs: 450 });
         if (ok) return true;
 
         throw new Error('Bluetooth terputus. Klik Sambungkan ulang di Kasir, lalu cetak lagi.');
@@ -981,7 +1117,7 @@ class PosPrinter {
         return this.connectWindowsUsb();
     }
 
-    async connectWindowsUsb() {
+    async connectWindowsUsb({ refresh = false } = {}) {
         const extra = this.settings.extra || {};
         let suggested = extra.windows_printer || this.settings.printer_name || this.windowsPrinter || null;
         let com = extra.com_port || this.comPort || null;
@@ -990,6 +1126,12 @@ class PosPrinter {
         if (suggested && /^COM\d+$/i.test(suggested)) {
             com = suggested.toUpperCase();
             suggested = null;
+        }
+
+        const hasSaved = Boolean(suggested || com);
+        if (hasSaved && !refresh) {
+            this.applyUsbFromSettings();
+            return this.status();
         }
 
         try {
@@ -1145,7 +1287,7 @@ class PosPrinter {
                 return;
             } catch (_) {}
         }
-        const ok = await this.reconnectBluetoothPersistent({ tries: 6, gapMs: 400 });
+        const ok = await this.reconnectBluetoothPersistent({ tries: 3, gapMs: 350 });
         if (ok) return;
         throw new Error('Bluetooth belum siap. Pastikan printer menyala, atau klik Sambungkan ulang.');
     }
@@ -1192,21 +1334,15 @@ class PosPrinter {
         const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
         const prefer = this.settings.printer_type || 'bluetooth';
 
-        // USB: selalu lewat Windows (RAW + teks driver seperti Word)
         if (prefer === 'usb') {
             if (this.type !== 'windows') {
-                await this.connectWindowsUsb();
+                this.applyUsbFromSettings() || await this.connectWindowsUsb({ refresh: false });
             }
             const target = this.resolveUsbTargets();
             return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort, plainText);
         }
 
-        if (this.type === 'windows') {
-            const target = this.resolveUsbTargets();
-            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort, plainText);
-        }
-
-        if (this.type === 'bluetooth' || prefer === 'bluetooth') {
+        if (prefer === 'bluetooth') {
             await this.ensureBluetooth();
             this.profile = resolveProfile(this.settings, this.btDevice?.name);
             const chunkSize = btChunkSize(this.profile, this.btCharacteristic);
@@ -1236,6 +1372,11 @@ class PosPrinter {
             }
 
             return true;
+        }
+
+        if (this.type === 'windows') {
+            const target = this.resolveUsbTargets();
+            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort, plainText);
         }
 
         if (this.type === 'usb' && this.writer) {
@@ -1285,36 +1426,71 @@ class PosPrinter {
             name = null;
         }
 
+        const savedName = this.settings.extra?.windows_printer
+            || this.settings.printer_name
+            || this.windowsPrinter
+            || null;
+        if (!name && savedName && !/^COM\d+$/i.test(savedName) && !/^USB\d+$/i.test(savedName)) {
+            name = savedName;
+        }
+
+        if (!name && !com) {
+            throw new Error(
+                'Printer USB belum dipilih. Pengaturan → USB Windows → ketik "POS-58" (sama seperti di Word) → Simpan → Tes cetak.',
+            );
+        }
+
         const textPayload = plainText != null
             ? this.textToBase64(plainText)
             : null;
 
-        const attempts = [
-            { printer_name: name, com_port: com, usb_port: usb },
-            { printer_name: name, com_port: com, usb_port: null },
-            { printer_name: name, com_port: null, usb_port: usb },
-            { printer_name: name, com_port: null, usb_port: null },
-            { printer_name: null, com_port: com, usb_port: usb },
-            { printer_name: null, com_port: com, usb_port: null },
-            { printer_name: null, com_port: null, usb_port: usb },
-            { printer_name: null, com_port: null, usb_port: null },
-        ];
+        const attempts = [];
+        const addAttempt = (p) => {
+            const key = `${p.printer_name || ''}|${p.com_port || ''}|${p.usb_port || ''}`;
+            if (!attempts.some((a) => `${a.printer_name || ''}|${a.com_port || ''}|${a.usb_port || ''}` === key)) {
+                attempts.push(p);
+            }
+        };
 
-        const seen = new Set();
-        let lastError = 'Gagal cetak USB. Pilih printer/COM di Pengaturan lalu Tes cetak.';
+        if (name) {
+            const isDriverOem = /^POS-?58$|GP-?58|58MB|Gainscha/i.test(name)
+                || this.settings.extra?.printer_usb_render === 'driver';
+            if (isDriverOem) {
+                addAttempt({ printer_name: name, com_port: null, usb_port: null });
+            } else {
+                addAttempt({ printer_name: name, com_port: com, usb_port: usb });
+                addAttempt({ printer_name: name, com_port: null, usb_port: usb });
+                addAttempt({ printer_name: name, com_port: com, usb_port: null });
+                addAttempt({ printer_name: name, com_port: null, usb_port: null });
+            }
+        }
+        if (com) {
+            addAttempt({ printer_name: null, com_port: com, usb_port: usb });
+            addAttempt({ printer_name: null, com_port: com, usb_port: null });
+        }
+        if (!name && !com && usb) {
+            addAttempt({ printer_name: null, com_port: null, usb_port: usb });
+        }
+
+        let lastError = 'Gagal cetak USB. Pastikan nama printer "POS-58" sudah dipilih di Pengaturan.';
 
         for (const attempt of attempts) {
-            const key = `${attempt.printer_name || ''}|${attempt.com_port || ''}|${attempt.usb_port || ''}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-
+            const isDriverAttempt = attempt.printer_name
+                && (/^POS-?58$|GP-?58|58MB|Gainscha/i.test(attempt.printer_name)
+                    || this.settings.extra?.printer_usb_render === 'driver');
             const body = {
-                bytes: this.bytesToBase64(data),
                 printer_name: attempt.printer_name,
                 com_port: attempt.com_port,
                 usb_port: attempt.usb_port,
             };
-            if (textPayload) body.text = textPayload;
+            if (textPayload) {
+                body.text = textPayload;
+                body.bytes = isDriverAttempt
+                    ? this.bytesToBase64(new Uint8Array([0x1b, 0x40]))
+                    : this.bytesToBase64(data);
+            } else {
+                body.bytes = this.bytesToBase64(data);
+            }
 
             const res = await fetch(url, {
                 method: 'POST',
@@ -1356,20 +1532,29 @@ class PosPrinter {
     async openCashDrawer(options = {}) {
         const settings = this.settings || {};
         const extra = settings.extra || {};
+        const prefer = settings.printer_type || 'bluetooth';
         if (!options.force && extra.cash_drawer === false) {
             throw new Error('Buka laci dimatikan di pengaturan.');
         }
-        // Default Pin 2 — paling umum (Hakpost, Rongta, Xprinter, dll)
         const pin = extra.cash_drawer_pin || '2';
         const kick = drawerKickBytes(pin);
+        const errors = [];
+
+        if (prefer === 'bluetooth') {
+            await this.ensureBluetooth();
+            await this.writeBytes(kick);
+            return true;
+        }
+
         const comPort = options.comPort || extra.cash_drawer_com_port || null;
         let winName = options.printerName
             || extra.cash_drawer_windows_printer
+            || this.windowsPrinter
+            || extra.windows_printer
+            || this.settings.printer_name
             || null;
-        const errors = [];
 
-        // Satu kali saja ke printer yang sedang dipakai cetak
-        if (this.isConnected() && (this.type === 'bluetooth' || this.type === 'usb' || this.type === 'webusb' || this.type === 'windows')) {
+        if (this.isConnected() && (this.type === 'usb' || this.type === 'webusb' || this.type === 'windows')) {
             try {
                 if (this.type === 'windows' && winName) {
                     await this.sendWindowsRaw(kick, winName, comPort);
@@ -1432,29 +1617,55 @@ class PosPrinter {
         );
     }
 
+    isDriverUsbMode() {
+        const type = this.settings.printer_type || 'bluetooth';
+        if (type !== 'usb') return false;
+        const name = this.windowsPrinter
+            || this.settings.extra?.windows_printer
+            || this.settings.printer_name
+            || '';
+        return this.settings.extra?.printer_usb_render === 'driver'
+            || /^POS-?58$|GP-?58|58MB|Gainscha/i.test(name);
+    }
+
     async printReceipt(transaction, settings = {}, options = {}) {
         if (settings && Object.keys(settings).length) this.setSettings(settings);
-        await this.ensureConnected();
+
+        const type = this.settings.printer_type || 'bluetooth';
+        if (type === 'usb') {
+            this.applyUsbFromSettings() || await this.connectWindowsUsb({ refresh: false });
+        } else if (!this.isConnected()) {
+            await this.ensureConnected();
+        }
 
         const openDrawer = shouldOpenDrawer(transaction, this.settings, options);
-        const logoImage = await loadLogoImage(this.settings.logo_url);
+        const driverUsb = this.isDriverUsbMode();
+        const logoImage = driverUsb ? null : await loadLogoImage(this.settings.logo_url);
         const receiptText = buildReceiptText(transaction, this.settings, this.profile, options);
-        const bytes = buildReceipt(transaction, this.settings, this.profile, {
-            ...options,
-            openDrawer: false,
-            logoImage,
-        });
+        const bytes = driverUsb
+            ? new Uint8Array([0x1b, 0x40])
+            : buildReceipt(transaction, this.settings, this.profile, {
+                ...options,
+                openDrawer: false,
+                logoImage,
+            });
         await this.writeBytes(bytes, receiptText);
 
         let drawerError = null;
         if (openDrawer) {
-            try {
-                // Satu kali setelah struk selesai dikirim
-                await sleep(150);
-                await this.openCashDrawer({ force: true });
-            } catch (err) {
-                drawerError = err.message || 'Gagal membuka laci';
-                console.warn('Cash drawer:', drawerError);
+            const runDrawer = async () => {
+                try {
+                    if (!driverUsb) await sleep(150);
+                    await this.openCashDrawer({ force: true });
+                } catch (err) {
+                    drawerError = err.message || 'Gagal membuka laci';
+                    console.warn('Cash drawer:', drawerError);
+                }
+            };
+            if (driverUsb) {
+                void runDrawer();
+            } else {
+                await runDrawer();
             }
         }
 

@@ -18,6 +18,7 @@ use App\Http\Controllers\PosController;
 use App\Http\Controllers\PrinterController;
 use App\Http\Controllers\PriceTagController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProfitLossController;
 use App\Http\Controllers\PurchaseController;
 use App\Http\Controllers\ReceivableController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\StockReportController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TransactionController;
+use App\Http\Controllers\TransactionVoidController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -53,6 +55,8 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/profile/password', [ProfileController::class, 'editPassword'])->name('profile.password');
+    Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password.update');
     Route::get('/subscription/payment/{payment}/proof-image', [SubscriptionController::class, 'showProof'])->name('subscription.proof.image');
     Route::get('/media/{path}', [MediaController::class, 'show'])->where('path', '.*')->name('media.show');
 
@@ -90,67 +94,86 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::middleware('subscribed')->group(function () {
-        Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
-        Route::get('/printer/devices', [PrinterController::class, 'devices'])->name('printer.devices');
-        Route::post('/printer/raw', [PrinterController::class, 'printRaw'])->name('printer.raw');
+        Route::middleware('staff.area:void')->group(function () {
+            Route::get('/transactions/void', [TransactionVoidController::class, 'create'])->name('transactions.void.create');
+            Route::post('/transactions/void', [TransactionVoidController::class, 'store'])->name('transactions.void.store');
+            Route::get('/transactions/void/lookup', [TransactionVoidController::class, 'lookup'])->name('transactions.void.lookup');
+        });
 
-        Route::get('/products', [ProductController::class, 'index'])->name('products.index');
-        Route::post('/products', [ProductController::class, 'store'])->name('products.store');
-        Route::put('/products/{product}', [ProductController::class, 'update'])->name('products.update');
-        Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
-        Route::post('/products/{product}/toggle-lock', [ProductController::class, 'toggleLock'])->name('products.toggle-lock');
+        Route::middleware('staff.area:pos')->group(function () {
+            Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
+            Route::get('/printer/devices', [PrinterController::class, 'devices'])->name('printer.devices');
+            Route::post('/printer/raw', [PrinterController::class, 'printRaw'])->name('printer.raw');
+            Route::post('/transactions', [TransactionController::class, 'store'])->name('transactions.store');
+            Route::get('/transactions/recent', [TransactionController::class, 'recent'])->name('transactions.recent');
+            Route::get('/transactions/{transaction}', [TransactionController::class, 'show'])->name('transactions.show')->whereNumber('transaction');
+        });
 
-        Route::get('/price-tags', [PriceTagController::class, 'index'])->name('price-tags.index');
-        Route::post('/price-tags/print', [PriceTagController::class, 'print'])->name('price-tags.print');
-        Route::post('/price-tags/pdf', [PriceTagController::class, 'pdf'])->name('price-tags.pdf');
+        Route::middleware('staff.area:inventory')->group(function () {
+            Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+            Route::post('/products', [ProductController::class, 'store'])->name('products.store');
+            Route::put('/products/{product}', [ProductController::class, 'update'])->name('products.update');
+            Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
+            Route::post('/products/{product}/toggle-lock', [ProductController::class, 'toggleLock'])->name('products.toggle-lock');
 
-        Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
-        Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+            Route::get('/price-tags', [PriceTagController::class, 'index'])->name('price-tags.index');
+            Route::post('/price-tags/print', [PriceTagController::class, 'print'])->name('price-tags.print');
+            Route::post('/price-tags/pdf', [PriceTagController::class, 'pdf'])->name('price-tags.pdf');
 
-        Route::get('/transactions', [TransactionController::class, 'index'])->name('transactions.index');
-        Route::post('/transactions', [TransactionController::class, 'store'])->name('transactions.store');
-        Route::get('/transactions/recent', [TransactionController::class, 'recent'])->name('transactions.recent');
-        Route::get('/transactions/{transaction}', [TransactionController::class, 'show'])->name('transactions.show');
-        Route::post('/transactions/{transaction}/void', [TransactionController::class, 'void'])->name('transactions.void');
+            Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
+            Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
 
-        Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
-        Route::get('/reports/export/excel', [ReportController::class, 'exportExcel'])->name('reports.export.excel');
-        Route::get('/reports/export/pdf', [ReportController::class, 'exportPdf'])->name('reports.export.pdf');
-        Route::get('/reports/stock', [StockReportController::class, 'index'])->name('reports.stock');
-        Route::get('/reports/profit-loss', [ProfitLossController::class, 'index'])->name('reports.profit-loss');
-        Route::get('/expiry', [ExpiryMonitorController::class, 'index'])->name('expiry.index');
+            Route::get('/expiry', [ExpiryMonitorController::class, 'index'])->name('expiry.index');
 
-        Route::get('/purchases', [PurchaseController::class, 'index'])->name('purchases.index');
-        Route::get('/purchases/create', [PurchaseController::class, 'create'])->name('purchases.create');
-        Route::post('/purchases', [PurchaseController::class, 'store'])->name('purchases.store');
-        Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->name('purchases.show');
+            Route::get('/purchases', [PurchaseController::class, 'index'])->name('purchases.index');
+            Route::get('/purchases/create', [PurchaseController::class, 'create'])->name('purchases.create');
+            Route::post('/purchases', [PurchaseController::class, 'store'])->name('purchases.store');
+            Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->name('purchases.show');
 
-        Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
-        Route::post('/suppliers', [SupplierController::class, 'store'])->name('suppliers.store');
-        Route::put('/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
-        Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');
+            Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
+            Route::post('/suppliers', [SupplierController::class, 'store'])->name('suppliers.store');
+            Route::put('/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
+            Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');
 
-        Route::get('/receivables', [ReceivableController::class, 'index'])->name('receivables.index');
-        Route::post('/receivables', [ReceivableController::class, 'store'])->name('receivables.store');
-        Route::post('/receivables/{receivable}/pay', [ReceivableController::class, 'pay'])->name('receivables.pay');
+            Route::get('/stock-opname', [StockOpnameController::class, 'index'])->name('stock-opname.index');
+            Route::get('/stock-opname/create', [StockOpnameController::class, 'create'])->name('stock-opname.create');
+            Route::post('/stock-opname', [StockOpnameController::class, 'store'])->name('stock-opname.store');
+            Route::get('/stock-opname/{stockOpname}', [StockOpnameController::class, 'show'])->name('stock-opname.show');
+            Route::post('/stock-opname/{stockOpname}/complete', [StockOpnameController::class, 'complete'])->name('stock-opname.complete');
+            Route::delete('/stock-opname/{stockOpname}', [StockOpnameController::class, 'destroy'])->name('stock-opname.destroy');
 
-        Route::get('/payables', [PayableController::class, 'index'])->name('payables.index');
-        Route::post('/payables', [PayableController::class, 'store'])->name('payables.store');
-        Route::post('/payables/{payable}/pay', [PayableController::class, 'pay'])->name('payables.pay');
+            Route::get('/reports/stock', [StockReportController::class, 'index'])->name('reports.stock');
+        });
 
-        Route::get('/stock-opname', [StockOpnameController::class, 'index'])->name('stock-opname.index');
-        Route::get('/stock-opname/create', [StockOpnameController::class, 'create'])->name('stock-opname.create');
-        Route::post('/stock-opname', [StockOpnameController::class, 'store'])->name('stock-opname.store');
-        Route::get('/stock-opname/{stockOpname}', [StockOpnameController::class, 'show'])->name('stock-opname.show');
-        Route::post('/stock-opname/{stockOpname}/complete', [StockOpnameController::class, 'complete'])->name('stock-opname.complete');
-        Route::delete('/stock-opname/{stockOpname}', [StockOpnameController::class, 'destroy'])->name('stock-opname.destroy');
+        Route::middleware('staff.area:finance')->group(function () {
+            Route::get('/transactions', [TransactionController::class, 'index'])->name('transactions.index');
+            Route::post('/transactions/{transaction}/void', [TransactionController::class, 'void'])->name('transactions.void')->whereNumber('transaction');
 
-        Route::get('/settings', [SettingController::class, 'index'])->name('settings.index');
-        Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
-        Route::post('/settings/printer', [SettingController::class, 'updatePrinter'])->name('settings.printer');
-        Route::get('/settings/offline/precache-manifest', [SettingController::class, 'precacheManifest'])->name('settings.offline.precache-manifest');
-        Route::post('/settings/offline/enable', [SettingController::class, 'enableOffline'])->name('settings.offline.enable');
-        Route::post('/settings/offline/disable', [SettingController::class, 'disableOffline'])->name('settings.offline.disable');
+            Route::get('/receivables', [ReceivableController::class, 'index'])->name('receivables.index');
+            Route::post('/receivables', [ReceivableController::class, 'store'])->name('receivables.store');
+            Route::post('/receivables/{receivable}/pay', [ReceivableController::class, 'pay'])->name('receivables.pay');
+
+            Route::get('/payables', [PayableController::class, 'index'])->name('payables.index');
+            Route::post('/payables', [PayableController::class, 'store'])->name('payables.store');
+            Route::post('/payables/{payable}/pay', [PayableController::class, 'pay'])->name('payables.pay');
+        });
+
+        Route::middleware('staff.area:reports')->group(function () {
+            Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+            Route::get('/reports/export/excel', [ReportController::class, 'exportExcel'])->name('reports.export.excel');
+            Route::get('/reports/export/pdf', [ReportController::class, 'exportPdf'])->name('reports.export.pdf');
+            Route::get('/reports/profit-loss', [ProfitLossController::class, 'index'])->name('reports.profit-loss');
+        });
+
+        Route::middleware('staff.area:settings')->group(function () {
+            Route::get('/settings', [SettingController::class, 'index'])->name('settings.index');
+            Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
+            Route::post('/settings/printer', [SettingController::class, 'updatePrinter'])->name('settings.printer');
+            Route::get('/settings/offline/precache-manifest', [SettingController::class, 'precacheManifest'])->name('settings.offline.precache-manifest');
+            Route::post('/settings/offline/enable', [SettingController::class, 'enableOffline'])->name('settings.offline.enable');
+            Route::post('/settings/offline/disable', [SettingController::class, 'disableOffline'])->name('settings.offline.disable');
+        });
+
         Route::post('/settings/wipe', [SettingController::class, 'wipe'])->middleware('owner')->name('settings.wipe');
 
         Route::middleware(['owner', 'feature:api_sync'])->group(function () {
@@ -158,7 +181,7 @@ Route::middleware('auth')->group(function () {
             Route::delete('/settings/api-token/revoke', [ApiTokenController::class, 'revoke'])->name('settings.api-token.revoke');
         });
 
-        Route::middleware(['owner', 'feature:multi_kasir'])->group(function () {
+        Route::middleware(['feature:multi_kasir', 'staff.area:staff'])->group(function () {
             Route::get('/kasir', [KasirController::class, 'index'])->name('kasir.index');
             Route::post('/kasir', [KasirController::class, 'store'])->name('kasir.store');
             Route::put('/kasir/{kasir}', [KasirController::class, 'update'])->name('kasir.update');

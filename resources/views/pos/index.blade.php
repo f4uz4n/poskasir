@@ -153,7 +153,10 @@
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <div>
                 <h3 class="text-lg font-bold">Riwayat transaksi</h3>
-                <p class="text-xs text-slate-500">Cetak ulang struk — transaksi hari ini saja</p>
+                <p class="text-xs text-slate-500">Klik nomor struk untuk detail, cetak ulang, batalkan, atau bagikan WhatsApp</p>
+                @if(auth()->user()->canAccessArea('void'))
+                <a href="{{ route('transactions.void.create') }}" class="text-xs text-red-600 font-medium mt-1 inline-block">Batalkan transaksi (nomor struk)</a>
+                @endif
             </div>
             <button type="button" id="btn-close-history" class="btn-icon" title="Tutup" aria-label="Tutup">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -167,4 +170,6 @@
         </div>
     </div>
 </div>
+
+@include('partials.transaction-detail-modal', ['showDetailBack' => true])
 @endsection

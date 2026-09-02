@@ -2,6 +2,7 @@ import './bootstrap';
 import OfflineStore from './offline-store';
 import printer from './printer';
 import { initPos } from './pos';
+import { initTransactionsPage } from './transaction-detail';
 import cameraBarcodeScanner, { openCameraBarcodeScanner, initCameraBarcodeScanner } from './camera-barcode-scanner';
 
 function toast(message) {
@@ -405,4 +406,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initNoKeyboardFields();
     initCameraBarcodeScanner();
     initPos();
+    initTransactionsPage();
 });

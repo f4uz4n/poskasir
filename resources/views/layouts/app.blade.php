@@ -92,6 +92,10 @@
                         <span class="nav-label">Online</span>
                     </span>
                 </div>
+                <a href="{{ route('profile.password') }}" class="btn btn-ghost w-full text-sm {{ request()->routeIs('profile.*') ? 'bg-brand-50 text-brand-700' : '' }}" title="Ganti password akun">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <span class="nav-label">Ganti Password</span>
+                </a>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
                     <button class="btn btn-ghost w-full text-sm" title="Keluar">
@@ -156,11 +160,14 @@
                 offlinePrecache: @json(auth()->check() && Route::has('settings.offline.precache-manifest') ? route('settings.offline.precache-manifest') : null),
                 transactionsStore: @json(auth()->check() ? route('transactions.store') : null),
                 transactionsRecent: @json(auth()->check() ? route('transactions.recent') : null),
+                transactionsVoidStore: @json(auth()->check() ? route('transactions.void.store') : null),
+                transactionsVoidPage: @json(auth()->check() ? route('transactions.void.create') : null),
                 printerDevices: @json(auth()->check() ? route('printer.devices') : null),
                 printerRaw: @json(auth()->check() ? route('printer.raw') : null),
                 settingsPrinter: @json(auth()->check() && Route::has('settings.printer') ? route('settings.printer') : null),
             },
             userId: @json(auth()->id()),
+            canVoid: @json(auth()->check() ? auth()->user()->canAccessArea('void') : false),
             offlineEnabled: @json($posStoreSetting?->offline_enabled ?? false),
             printer: {
                 printer_type: @json($posStoreSetting?->printer_type),

@@ -268,6 +268,68 @@ label:has(> input[type='radio']) {
     opacity: 0.55;
 }
 
+.history-invoice-btn {
+    font-weight: 600;
+    color: #0f766e;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+}
+
+.history-invoice-btn:hover {
+    color: #115e59;
+}
+
+.history-detail-items {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.history-detail-items th,
+.history-detail-items td {
+    padding: 0.45rem 0;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: top;
+}
+
+.history-detail-items th {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.history-detail-summary {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.history-detail-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.2rem 0;
+}
+
+.history-detail-summary-row.is-total {
+    font-weight: 700;
+    font-size: 1rem;
+    padding-top: 0.35rem;
+    margin-top: 0.25rem;
+    border-top: 1px solid #e2e8f0;
+}
+
 .input {
     width: 100%;
     border: 1px solid #d1d5db;

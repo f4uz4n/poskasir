@@ -170,8 +170,8 @@ export const OfflineStore = {
             };
         }
 
-        // Local menang untuk tipe/koneksi printer (setelah Deteksi di browser ini)
-        const printerType = local.printer_type || server.printer_type || null;
+        // Pengaturan toko (server) menang untuk tipe printer; local untuk state pairing BT
+        const printerType = server.printer_type || local.printer_type || 'bluetooth';
         const printerName = local.printer_name
             || server.printer_name
             || localExtra.windows_printer
@@ -187,6 +187,9 @@ export const OfflineStore = {
             com_port: localExtra.com_port
                 || serverExtra.com_port
                 || (printerType === 'usb' && printerName && /^COM\d+$/i.test(printerName) ? String(printerName).toUpperCase() : null)
+                || null,
+            usb_port: localExtra.usb_port
+                || serverExtra.usb_port
                 || null,
             printer_usb_mode: localExtra.printer_usb_mode || serverExtra.printer_usb_mode || 'windows',
             printer_setup_done: true,

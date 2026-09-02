@@ -1,6 +1,10 @@
 import OfflineStore from './offline-store';
 import printer from './printer';
 import { createBarcodeScanner } from './scanner';
+import {
+    paymentMethodLabel,
+    bindTransactionDetailModal,
+} from './transaction-detail';
 
 function formatMoney(n) {
     return 'Rp ' + Number(n || 0).toLocaleString('id-ID');
@@ -202,7 +206,6 @@ export function initPos() {
 
         const cfg = window.POS_CONFIG?.printer;
         if (cfg?.printer_type && cfg.printer_type !== 'none') {
-            // Server (hasil Deteksi/Tes di Pengaturan) jadi acuan tipe koneksi
             settings.printer_type = cfg.printer_type;
             settings.printer_name = cfg.printer_name || settings.printer_name;
             settings.extra = {
@@ -211,7 +214,6 @@ export function initPos() {
             };
         }
 
-        // Token BT tetap dari local
         try {
             const local = JSON.parse(localStorage.getItem('kasirflow_device_settings') || 'null');
             if (local?.bt_device_id) {
@@ -222,7 +224,17 @@ export function initPos() {
         } catch (_) {}
 
         printer.setSettings(settings);
-        await printer.autoConnect();
+
+        const type = settings.printer_type || 'bluetooth';
+        if (type === 'usb') {
+            printer.applyUsbFromSettings();
+            return settings;
+        }
+        if (type === 'none') return settings;
+
+        if (!printer.isConnected()) {
+            await printer.reconnectBluetoothPersistent({ tries: 2, gapMs: 300 });
+        }
         return settings;
     }
 
@@ -535,15 +547,19 @@ export function initPos() {
         }
 
         lastTransaction = payload;
-        try {
-            await refreshPrinterBeforePrint();
-            const printResult = await printer.printReceipt(payload, settings);
-            if (printResult?.drawerError) {
-                toast(printResult.drawerError);
+
+        // Cetak di background — checkout/modal tidak menunggu printer selesai
+        void (async () => {
+            try {
+                await refreshPrinterBeforePrint();
+                const printResult = await printer.printReceipt(payload, settings);
+                if (printResult?.drawerError) {
+                    toast(printResult.drawerError);
+                }
+            } catch (printErr) {
+                toast(printErr.message || 'Transaksi tersimpan, tetapi cetak struk gagal.');
             }
-        } catch (printErr) {
-            toast(printErr.message || 'Transaksi tersimpan, tetapi cetak struk gagal.');
-        }
+        })();
 
         cart = [];
         setPaid(0);
@@ -646,11 +662,10 @@ export function initPos() {
             const type = settings.printer_type || 'bluetooth';
 
             if (type === 'usb') {
-                await printer.connectWindowsUsb();
-                // Verifikasi cetak ringan tidak wajib; pastikan target ada
+                printer.applyUsbFromSettings() || await printer.connectWindowsUsb({ refresh: false });
                 const target = printer.resolveUsbTargets?.() || {};
                 if (!target.printerName && !target.comPort && !printer.windowsPrinter && !printer.comPort) {
-                    throw new Error('Printer USB/COM belum dipilih. Ulangi Deteksi di Pengaturan.');
+                    throw new Error('Printer USB belum dipilih. Pengaturan → pilih printer → Simpan.');
                 }
                 markPrinterLive(printer.windowsPrinter || printer.comPort || settings.printer_name || 'USB');
                 toast('Printer USB siap');
@@ -692,6 +707,24 @@ export function initPos() {
 
     const historyModal = document.getElementById('history-modal');
     const historyList = document.getElementById('history-list');
+    let historyRows = [];
+
+    const historyDetail = bindTransactionDetailModal({
+        settings,
+        showBackButton: true,
+        toast,
+        onReprint: async (trx) => {
+            await refreshPrinterBeforePrint();
+            await printer.printReceipt(trx, settings, { openDrawer: false });
+        },
+        onVoidSuccess: () => {
+            loadHistory();
+        },
+    });
+
+    function openHistoryDetail(trx) {
+        historyDetail.open(trx);
+    }
 
     function openHistory() {
         if (!historyModal) return;
@@ -704,16 +737,6 @@ export function initPos() {
         if (!historyModal) return;
         historyModal.classList.add('hidden');
         historyModal.classList.remove('flex');
-    }
-
-    function historyPayload(trx) {
-        return {
-            ...trx,
-            items: (trx.items || []).map((item) => ({
-                ...item,
-                subtotal: item.subtotal ?? (Number(item.qty) * Number(item.price)),
-            })),
-        };
     }
 
     function isTodayTransaction(trx) {
@@ -745,6 +768,7 @@ export function initPos() {
         }
 
         rows = rows.filter(isTodayTransaction);
+        historyRows = rows;
 
         if (!rows.length) {
             historyList.innerHTML = '<p class="text-slate-400 text-center py-8">Belum ada transaksi hari ini.</p>';
@@ -758,34 +782,23 @@ export function initPos() {
             return `
                 <div class="history-row ${isVoid ? 'is-void' : ''}">
                     <div class="min-w-0 flex-1">
-                        <div class="font-semibold truncate">${trx.invoice_number || trx.local_id || '-'}</div>
+                        <button type="button" class="history-invoice-btn" data-detail="${idx}" title="Lihat detail struk">
+                            ${trx.invoice_number || trx.local_id || '-'}
+                        </button>
                         <div class="text-xs text-slate-500">${when} · ${typeLabel}${trx.customer_name ? ' · ' + trx.customer_name : ''}</div>
-                        <div class="text-xs text-slate-400">${(trx.items || []).length} item · ${(trx.payment_method || '').toUpperCase()}${isVoid ? ' · VOID' : ''}</div>
+                        <div class="text-xs text-slate-400">${(trx.items || []).length} item · ${paymentMethodLabel(trx.payment_method)}${isVoid ? ' · VOID' : ''}</div>
                     </div>
                     <div class="text-right shrink-0">
                         <div class="font-bold text-sm">${formatMoney(trx.total)}</div>
-                        ${isVoid ? '' : `<button type="button" class="btn-icon mt-1" data-reprint="${idx}" title="Cetak ulang" aria-label="Cetak ulang">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="6 9 6 2 18 2 18 9"></polyline>
-                                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-                                <rect x="6" y="14" width="12" height="8"></rect>
-                            </svg>
-                        </button>`}
                     </div>
                 </div>
             `;
         }).join('');
 
-        historyList.querySelectorAll('[data-reprint]').forEach((btn) => {
-            btn.addEventListener('click', async () => {
-                const trx = rows[Number(btn.dataset.reprint)];
-                if (!trx) return;
-                try {
-                    await printer.printReceipt(historyPayload(trx), settings, { openDrawer: false });
-                    toast('Struk dikirim ke printer');
-                } catch (err) {
-                    toast(err.message || 'Gagal cetak ulang');
-                }
+        historyList.querySelectorAll('[data-detail]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const trx = historyRows[Number(btn.dataset.detail)];
+                if (trx) openHistoryDetail(trx);
             });
         });
     }
@@ -820,7 +833,7 @@ export function initPos() {
         if (settings.scanner_enabled === false) return;
         const active = document.activeElement;
         if (active?.matches?.('input:not([data-no-keyboard]), textarea, select')) return;
-        if (active?.closest?.('#checkout-modal, #history-modal, button, a, select')) return;
+        if (active?.closest?.('#checkout-modal, #history-modal, #history-detail-modal, button, a, select')) return;
         setTimeout(() => focusBarcodeInput(), 80);
     });
 
@@ -892,14 +905,12 @@ export function initPos() {
         try {
             await refreshPrinterBeforePrint();
             if (type === 'usb') {
-                await printer.connectWindowsUsb();
                 markPrinterLive(printer.windowsPrinter || printer.comPort || settings.printer_name || 'USB');
             } else {
-                const ok = await printer.reconnectBluetoothPersistent({ tries: 8, gapMs: 500 });
+                const ok = printer.isConnected() || await printer.reconnectBluetoothPersistent({ tries: 4, gapMs: 400 });
                 if (ok && printer.isConnected()) {
                     markPrinterLive(printer.btDevice?.name || settings.printer_name || 'Bluetooth');
                 } else {
-                    // Tetap "siap" — tombol hanya jika user butuh fallback manual
                     markPrinterReady(settings.bt_device_name || settings.printer_name || 'Bluetooth', { showButton: true });
                 }
             }
@@ -941,10 +952,9 @@ export function initPos() {
         try {
             await refreshPrinterBeforePrint();
             if (settings.printer_type === 'usb') {
-                await printer.connectWindowsUsb();
                 markPrinterLive(printer.windowsPrinter || printer.comPort || settings.printer_name || 'USB');
             } else {
-                const ok = await printer.reconnectBluetoothPersistent({ tries: 8, gapMs: 450 });
+                const ok = printer.isConnected() || await printer.reconnectBluetoothPersistent({ tries: 3, gapMs: 400 });
                 if (ok) markPrinterLive();
                 else {
                     markPrinterReady(settings.bt_device_name || settings.printer_name || '', { showButton: true });

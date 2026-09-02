@@ -61,7 +61,9 @@ $openIf = function (bool $active) {
     </div>
 </details>
 @else
+@php $user = auth()->user(); @endphp
 
+@if($user->canAccessArea('dashboard') || $user->canAccessArea('pos'))
 <details class="nav-dropdown {{ $openIf(request()->routeIs('dashboard') || request()->routeIs('pos.*')) }}" data-nav-group="utama" @if(request()->routeIs('dashboard') || request()->routeIs('pos.*')) open @endif>
     <summary class="nav-dropdown-toggle" title="Utama">
         <span class="nav-toggle-left">
@@ -71,15 +73,21 @@ $openIf = function (bool $active) {
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
+        @if($user->canAccessArea('dashboard'))
         <a href="{{ route('dashboard') }}" class="sidebar-link {{ request()->routeIs('dashboard') ? 'active' : '' }}" title="Dashboard">
             {!! $icon('dashboard') !!}<span class="nav-label">Dashboard</span>
         </a>
+        @endif
+        @if($user->canAccessArea('pos'))
         <a href="{{ route('pos.index') }}" class="sidebar-link {{ request()->routeIs('pos.*') ? 'active' : '' }}" title="Kasir POS">
             {!! $icon('pos') !!}<span class="nav-label">Kasir POS</span>
         </a>
+        @endif
     </div>
 </details>
+@endif
 
+@if($user->canAccessArea('inventory'))
 <details class="nav-dropdown {{ $openIf(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) }}" data-nav-group="inventori" @if(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) open @endif>
     <summary class="nav-dropdown-toggle" title="Inventori">
         <span class="nav-toggle-left">
@@ -112,7 +120,9 @@ $openIf = function (bool $active) {
         </a>
     </div>
 </details>
+@endif
 
+@if($user->canAccessArea('finance') || $user->canAccessArea('void'))
 <details class="nav-dropdown {{ $openIf(request()->routeIs(['transactions.*','receivables.*','payables.*'])) }}" data-nav-group="keuangan" @if(request()->routeIs(['transactions.*','receivables.*','payables.*'])) open @endif>
     <summary class="nav-dropdown-toggle" title="Keuangan">
         <span class="nav-toggle-left">
@@ -122,7 +132,8 @@ $openIf = function (bool $active) {
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
-        <a href="{{ route('transactions.index') }}" class="sidebar-link {{ request()->routeIs('transactions.*') ? 'active' : '' }}" title="Transaksi">
+        @if($user->canAccessArea('finance'))
+        <a href="{{ route('transactions.index') }}" class="sidebar-link {{ request()->routeIs('transactions.index') || request()->routeIs('transactions.show') ? 'active' : '' }}" title="Transaksi">
             {!! $icon('transactions') !!}<span class="nav-label">Transaksi</span>
         </a>
         <a href="{{ route('receivables.index') }}" class="sidebar-link {{ request()->routeIs('receivables.*') ? 'active' : '' }}" title="Piutang">
@@ -131,9 +142,17 @@ $openIf = function (bool $active) {
         <a href="{{ route('payables.index') }}" class="sidebar-link {{ request()->routeIs('payables.*') ? 'active' : '' }}" title="Hutang">
             {!! $icon('hutang') !!}<span class="nav-label">Hutang</span>
         </a>
+        @endif
+        @if($user->canAccessArea('void'))
+        <a href="{{ route('transactions.void.create') }}" class="sidebar-link {{ request()->routeIs('transactions.void.*') ? 'active' : '' }}" title="Batalkan Transaksi">
+            {!! $icon('transactions') !!}<span class="nav-label">Batalkan Transaksi</span>
+        </a>
+        @endif
     </div>
 </details>
+@endif
 
+@if($user->canAccessArea('reports'))
 <details class="nav-dropdown {{ $openIf(request()->routeIs('reports.index') || request()->routeIs('reports.profit-loss')) }}" data-nav-group="laporan" @if(request()->routeIs('reports.index') || request()->routeIs('reports.profit-loss')) open @endif>
     <summary class="nav-dropdown-toggle" title="Laporan">
         <span class="nav-toggle-left">
@@ -151,7 +170,9 @@ $openIf = function (bool $active) {
         </a>
     </div>
 </details>
+@endif
 
+@if($user->isStoreOwner() || $user->canAccessArea('staff') || $user->canAccessArea('settings'))
 <details class="nav-dropdown {{ $openIf(request()->routeIs(['kasir.*','backup.*','subscription.*','settings.*'])) }}" data-nav-group="toko" @if(request()->routeIs(['kasir.*','backup.*','subscription.*','settings.*'])) open @endif>
     <summary class="nav-dropdown-toggle" title="Toko">
         <span class="nav-toggle-left">
@@ -161,12 +182,12 @@ $openIf = function (bool $active) {
         {!! $icon('chevron') !!}
     </summary>
     <div class="nav-dropdown-menu">
-        @if(auth()->user()->isStoreOwner() && auth()->user()->hasFeature('multi_kasir'))
-        <a href="{{ route('kasir.index') }}" class="sidebar-link {{ request()->routeIs('kasir.*') ? 'active' : '' }}" title="Akun Kasir">
-            {!! $icon('kasir') !!}<span class="nav-label">Akun Kasir</span>
+        @if($user->canManageStaff() && $user->storeOwner()->hasFeature('multi_kasir'))
+        <a href="{{ route('kasir.index') }}" class="sidebar-link {{ request()->routeIs('kasir.*') ? 'active' : '' }}" title="Akun Staff">
+            {!! $icon('kasir') !!}<span class="nav-label">Akun Staff</span>
         </a>
         @endif
-        @if(auth()->user()->isStoreOwner())
+        @if($user->isStoreOwner())
         <a href="{{ route('backup.index') }}" class="sidebar-link {{ request()->routeIs('backup.*') ? 'active' : '' }}" title="Backup">
             {!! $icon('backup') !!}<span class="nav-label">Backup</span>
         </a>
@@ -174,10 +195,13 @@ $openIf = function (bool $active) {
             {!! $icon('subscription') !!}<span class="nav-label">Langganan</span>
         </a>
         @endif
+        @if($user->canAccessArea('settings'))
         <a href="{{ route('settings.index') }}" class="sidebar-link {{ request()->routeIs('settings.*') ? 'active' : '' }}" title="Pengaturan">
             {!! $icon('settings') !!}<span class="nav-label">Pengaturan</span>
         </a>
+        @endif
     </div>
 </details>
+@endif
 
 @endif
