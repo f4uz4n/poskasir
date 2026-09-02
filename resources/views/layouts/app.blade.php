@@ -168,6 +168,7 @@
             },
             userId: @json(auth()->id()),
             canVoid: @json(auth()->check() ? auth()->user()->canAccessArea('void') : false),
+            serverSideUsbPrint: @json(auth()->check() ? app(\App\Services\WindowsPrinterService::class)->supportsServerSidePrint() : false),
             offlineEnabled: @json($posStoreSetting?->offline_enabled ?? false),
             printer: {
                 printer_type: @json($posStoreSetting?->printer_type),

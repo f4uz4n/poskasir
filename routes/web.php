@@ -102,6 +102,7 @@ Route::middleware('auth')->group(function () {
 
         Route::middleware('staff.area:pos')->group(function () {
             Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
+            Route::get('/printer/capabilities', [PrinterController::class, 'capabilities'])->name('printer.capabilities');
             Route::get('/printer/devices', [PrinterController::class, 'devices'])->name('printer.devices');
             Route::post('/printer/raw', [PrinterController::class, 'printRaw'])->name('printer.raw');
             Route::post('/transactions', [TransactionController::class, 'store'])->name('transactions.store');

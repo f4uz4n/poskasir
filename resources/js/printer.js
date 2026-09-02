@@ -57,6 +57,18 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function serverSideUsbPrint() {
+    return window.POS_CONFIG?.serverSideUsbPrint !== false;
+}
+
+function effectiveUsbMode(settings = {}) {
+    const mode = settings?.extra?.printer_usb_mode || 'windows';
+    if (mode === 'windows' && !serverSideUsbPrint()) {
+        return 'serial';
+    }
+    return mode;
+}
+
 function money(n) {
     return 'Rp ' + Number(n || 0).toLocaleString('id-ID');
 }
@@ -440,6 +452,9 @@ class PosPrinter {
     isConnected() {
         const prefer = this.settings.printer_type || 'bluetooth';
         if (prefer === 'usb') {
+            const mode = effectiveUsbMode(this.settings);
+            if (mode === 'serial') return Boolean(this.writer);
+            if (mode === 'webusb') return Boolean(this.usbDevice);
             if (this.type === 'windows' && (this.windowsPrinter || this.comPort)) return true;
             const extra = this.settings.extra || {};
             const name = extra.windows_printer || this.settings.printer_name || this.windowsPrinter;
@@ -789,6 +804,65 @@ class PosPrinter {
         const prefer = preferType || this.settings.printer_type || 'bluetooth';
 
         if (prefer === 'usb') {
+            const mode = effectiveUsbMode(this.settings);
+            if (mode === 'serial') {
+                try {
+                    await this.connectSerial();
+                    OfflineStore.saveDeviceSettings({
+                        printer_type: 'usb',
+                        printer_name: 'COM (Web Serial)',
+                        printer_setup_done: true,
+                        bt_paired: false,
+                        extra: {
+                            ...(this.settings.extra || {}),
+                            printer_usb_mode: 'serial',
+                        },
+                    });
+                    return {
+                        ok: true,
+                        type: 'usb',
+                        name: 'COM (Web Serial)',
+                        message: 'Port COM terhubung via browser',
+                    };
+                } catch (err) {
+                    return {
+                        ok: false,
+                        type: 'usb',
+                        name: null,
+                        message: err.message || 'Gagal hubungkan port COM.',
+                    };
+                }
+            }
+            if (mode === 'webusb') {
+                try {
+                    await this.connectWebUsb();
+                    const label = this.usbDevice?.productName || 'USB Printer';
+                    OfflineStore.saveDeviceSettings({
+                        printer_type: 'usb',
+                        printer_name: label,
+                        printer_setup_done: true,
+                        bt_paired: false,
+                        extra: {
+                            ...(this.settings.extra || {}),
+                            printer_usb_mode: 'webusb',
+                        },
+                    });
+                    return {
+                        ok: true,
+                        type: 'usb',
+                        name: label,
+                        message: 'Printer USB terhubung via browser',
+                    };
+                } catch (err) {
+                    return {
+                        ok: false,
+                        type: 'usb',
+                        name: null,
+                        message: err.message || 'Gagal hubungkan WebUSB.',
+                    };
+                }
+            }
+
             try {
                 const devices = deviceJson || await this.fetchWindowsDevices();
                 const options = this.buildPrinterOptionList(devices);
@@ -1335,6 +1409,27 @@ class PosPrinter {
         const prefer = this.settings.printer_type || 'bluetooth';
 
         if (prefer === 'usb') {
+            const mode = effectiveUsbMode(this.settings);
+
+            if (mode === 'serial') {
+                if (!this.writer) {
+                    await this.connectSerial();
+                }
+                await this.writer.write(data);
+                return true;
+            }
+
+            if (mode === 'webusb') {
+                if (!this.usbDevice) {
+                    await this.connectWebUsb();
+                }
+                const chunkSize = this.usbPacketSize || 64;
+                for (let i = 0; i < data.length; i += chunkSize) {
+                    await this.usbDevice.transferOut(this.usbEndpoint, data.slice(i, i + chunkSize));
+                }
+                return true;
+            }
+
             if (this.type !== 'windows') {
                 this.applyUsbFromSettings() || await this.connectWindowsUsb({ refresh: false });
             }
@@ -1396,6 +1491,12 @@ class PosPrinter {
     }
 
     async sendWindowsRaw(bytes, printerName = null, comPort = null, usbPort = null, plainText = null) {
+        if (!serverSideUsbPrint()) {
+            throw new Error(
+                'Server production tidak bisa cetak USB driver. Pengaturan → USB → pilih "Browser — Port COM" atau "WebUSB", lalu hubungkan dari PC kasir.',
+            );
+        }
+
         const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
         const url = window.POS_CONFIG?.routes?.printerRaw;
         if (!url) {
@@ -1618,8 +1719,14 @@ class PosPrinter {
     }
 
     isDriverUsbMode() {
+        if (!serverSideUsbPrint()) {
+            return false;
+        }
         const type = this.settings.printer_type || 'bluetooth';
         if (type !== 'usb') return false;
+        if ((this.settings.extra?.printer_usb_mode || 'windows') !== 'windows') {
+            return false;
+        }
         const name = this.windowsPrinter
             || this.settings.extra?.windows_printer
             || this.settings.printer_name
@@ -1633,7 +1740,16 @@ class PosPrinter {
 
         const type = this.settings.printer_type || 'bluetooth';
         if (type === 'usb') {
-            this.applyUsbFromSettings() || await this.connectWindowsUsb({ refresh: false });
+            const mode = effectiveUsbMode(this.settings);
+            if (mode === 'serial' || mode === 'webusb') {
+                if (mode === 'serial' && !this.writer) {
+                    await this.connectSerial();
+                } else if (mode === 'webusb' && !this.usbDevice) {
+                    await this.connectWebUsb();
+                }
+            } else {
+                this.applyUsbFromSettings() || await this.connectWindowsUsb({ refresh: false });
+            }
         } else if (!this.isConnected()) {
             await this.ensureConnected();
         }

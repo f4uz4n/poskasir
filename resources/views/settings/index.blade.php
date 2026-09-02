@@ -137,11 +137,29 @@
 
                 <input type="hidden" name="printer_profile" value="{{ old('printer_profile', $settings->extra['printer_profile'] ?? 'auto') }}">
                 <input type="hidden" name="printer_baud" value="{{ old('printer_baud', $settings->extra['printer_baud'] ?? 9600) }}">
-                <input type="hidden" name="printer_usb_mode" value="{{ old('printer_usb_mode', $settings->extra['printer_usb_mode'] ?? 'windows') }}">
                 <input type="hidden" name="com_port" id="com-port-input" value="{{ old('com_port', $settings->extra['com_port'] ?? '') }}">
                 <input type="hidden" name="usb_port" id="usb-port-input" value="{{ old('usb_port', $settings->extra['usb_port'] ?? '') }}">
 
-                <div id="usb-windows-fields" class="{{ $ptype === 'usb' ? '' : 'hidden' }} space-y-2">
+                <div id="usb-windows-fields" class="{{ $ptype === 'usb' ? '' : 'hidden' }} space-y-3">
+                    <div>
+                        <label class="text-sm font-medium">Metode cetak USB</label>
+                        @php
+                            $usbMode = old('printer_usb_mode', $settings->extra['printer_usb_mode'] ?? ($serverSideUsbPrint ? 'windows' : 'serial'));
+                        @endphp
+                        <select name="printer_usb_mode" id="printer-usb-mode-select" class="input mt-1" data-no-select2>
+                            <option value="windows" @selected($usbMode === 'windows') @disabled(!$serverSideUsbPrint)>Driver Windows (PC lokal / XAMPP)</option>
+                            <option value="serial" @selected($usbMode === 'serial')>Browser — Port COM (Web Serial)</option>
+                            <option value="webusb" @selected($usbMode === 'webusb')>Browser — WebUSB langsung</option>
+                        </select>
+                        @unless($serverSideUsbPrint)
+                        <p class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2 mt-2">
+                            Server production ({{ PHP_OS_FAMILY }}) tidak bisa cetak lewat PowerShell.
+                            Pilih <strong>Browser — Port COM</strong> atau <strong>WebUSB</strong>, lalu hubungkan dari komputer kasir (Chrome/Edge).
+                        </p>
+                        @endunless
+                    </div>
+
+                    <div id="usb-windows-driver-fields" class="{{ $usbMode === 'windows' ? '' : 'hidden' }} space-y-2">
                     <div>
                         <label class="text-sm font-medium">Printer USB / port COM</label>
                         <select name="windows_printer" id="windows-printer-select" class="input mt-1" data-no-select2>
@@ -160,6 +178,12 @@
                         </p>
                         <ul id="usb-device-hints" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2 mt-2 space-y-1"></ul>
                         <button type="button" id="btn-refresh-usb-printers" class="btn btn-ghost text-xs mt-2">Muat ulang daftar printer</button>
+                    </div>
+                    </div>
+
+                    <div id="usb-browser-fields" class="{{ in_array($usbMode, ['serial', 'webusb'], true) ? '' : 'hidden' }} rounded-lg border border-sky-100 bg-sky-50 p-3 text-xs text-sky-900 space-y-1">
+                        <p><strong>Production / hosting online:</strong> cetak langsung dari browser ke printer USB di PC kasir (tanpa lewat server).</p>
+                        <p>Serial: pilih port COM saat diminta. WebUSB: pilih perangkat POS-58 jika driver tidak mengunci USB.</p>
                     </div>
                 </div>
 
@@ -487,6 +511,21 @@ const windowsPrinterSelect = document.getElementById('windows-printer-select');
 const windowsPrinterManual = document.getElementById('windows-printer-manual');
 const usbDeviceHints = document.getElementById('usb-device-hints');
 const usbFields = document.getElementById('usb-windows-fields');
+const usbModeSelect = document.getElementById('printer-usb-mode-select');
+const usbDriverFields = document.getElementById('usb-windows-driver-fields');
+const usbBrowserFields = document.getElementById('usb-browser-fields');
+const pairBtn = document.getElementById('btn-pair-printer');
+
+function syncUsbModeUi() {
+    const mode = usbModeSelect?.value || 'windows';
+    usbDriverFields?.classList.toggle('hidden', mode !== 'windows');
+    usbBrowserFields?.classList.toggle('hidden', !['serial', 'webusb'].includes(mode));
+    if (pairBtn && typeSelect?.value === 'usb') {
+        if (mode === 'serial') pairBtn.textContent = 'Hubungkan Port COM';
+        else if (mode === 'webusb') pairBtn.textContent = 'Hubungkan WebUSB';
+        else pairBtn.textContent = 'Deteksi Printer USB';
+    }
+}
 
 function isVirtualPrinterName(name = '') {
     return /onenote|one note|microsoft print to pdf|microsoft xps|fax|send to|adobe pdf|pdfcreator|pdf24|virtual|document writer|portprompt/i
@@ -540,25 +579,39 @@ function applyManualPrinterName() {
 function syncUsbFields() {
     const isUsb = typeSelect?.value === 'usb';
     const isBt = typeSelect?.value === 'bluetooth';
+    const usbMode = usbModeSelect?.value || 'windows';
     if (usbFields) usbFields.classList.toggle('hidden', !isUsb);
-    const pairBtn = document.getElementById('btn-pair-printer');
     if (pairBtn) {
-        pairBtn.classList.toggle('hidden', !isBt);
-        pairBtn.textContent = 'Pasangkan Bluetooth';
+        pairBtn.classList.toggle('hidden', !(isBt || isUsb));
+        if (isBt) {
+            pairBtn.textContent = 'Pasangkan Bluetooth';
+        } else if (isUsb) {
+            syncUsbModeUi();
+        }
     }
     if (detectedMetaEl) {
         const v = typeSelect?.value || 'bluetooth';
-        const label = v === 'usb' ? 'USB Windows' : (v === 'none' ? 'Nonaktif' : 'Bluetooth');
+        let label = v === 'none' ? 'Nonaktif' : 'Bluetooth';
+        if (v === 'usb') {
+            if (usbMode === 'serial') label = 'USB Browser (COM)';
+            else if (usbMode === 'webusb') label = 'USB Browser (WebUSB)';
+            else label = 'USB Windows';
+        }
         detectedMetaEl.textContent = 'Mode: ' + label;
     }
     if (statusEl && isUsb) {
-        const saved = windowsPrinterManual?.value?.trim() || windowsPrinterSelect?.value || printerNameInput?.value || '';
-        if (saved) {
-            setStatus(`Printer USB: ${saved}. Klik Simpan pengaturan agar Kasir memakainya.`, true);
+        if (['serial', 'webusb'].includes(usbMode)) {
+            setStatus('Klik tombol hubungkan → pilih port/perangkat di browser → Tes cetak.', true);
         } else {
-            setStatus('Pilih printer dari daftar (seperti Word), lalu Simpan pengaturan.');
+            const saved = windowsPrinterManual?.value?.trim() || windowsPrinterSelect?.value || printerNameInput?.value || '';
+            if (saved) {
+                setStatus(`Printer USB: ${saved}. Klik Simpan pengaturan agar Kasir memakainya.`, true);
+            } else {
+                setStatus('Pilih printer dari daftar (seperti Word), lalu Simpan pengaturan.');
+            }
         }
     }
+    syncUsbModeUi();
 }
 
 function fillWindowsPrinterOptions(printers = [], selected = '') {
@@ -724,7 +777,10 @@ async function pairPrinter() {
     try {
         let deviceJson = null;
         if (preferType === 'usb') {
-            deviceJson = await loadPosPrinters();
+            const mode = usbModeSelect?.value || 'windows';
+            if (mode === 'windows' && window.POS_CONFIG?.serverSideUsbPrint !== false) {
+                deviceJson = await loadPosPrinters();
+            }
         }
         const result = await window.PosPrinter.detectAndConnect({ allowPrompt: true, preferType, deviceJson });
         const printerList = result?.printers || deviceJson?.printers || [];
@@ -805,12 +861,20 @@ typeSelect?.addEventListener('change', () => {
     applyFormSettings();
     const v = typeSelect.value;
     if (v === 'usb') {
-        loadPosPrinters();
+        const mode = usbModeSelect?.value || 'windows';
+        if (mode === 'windows' && window.POS_CONFIG?.serverSideUsbPrint !== false) {
+            loadPosPrinters();
+        }
     } else if (v === 'bluetooth') {
         setStatus('Nyalakan printer Bluetooth, lalu klik Pasangkan Bluetooth.');
     } else {
         setStatus('Printer dimatikan.');
     }
+});
+
+usbModeSelect?.addEventListener('change', () => {
+    syncUsbFields();
+    applyFormSettings();
 });
 
 windowsPrinterSelect?.addEventListener('change', () => {

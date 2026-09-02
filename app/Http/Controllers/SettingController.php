@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 class SettingController extends Controller
 {
-    public function index(StoreDataWipeService $wipe, LoginDeviceService $loginDevices)
+    public function index(StoreDataWipeService $wipe, LoginDeviceService $loginDevices, WindowsPrinterService $printers)
     {
         $user = Auth::user();
         $owner = $user->storeOwner();
@@ -22,6 +22,7 @@ class SettingController extends Controller
         $canRemote = $user->hasFeature('remote_laporan');
         $canLockStock = $user->hasFeature('kunci_stok');
         $canApiSync = $user->hasFeature('api_sync');
+        $serverSideUsbPrint = $printers->supportsServerSidePrint();
         $remoteUrl = ($settings?->remote_monitor_enabled && $settings?->remote_monitor_token)
             ? url('/monitor/'.$settings->remote_monitor_token)
             : null;
@@ -44,6 +45,7 @@ class SettingController extends Controller
             'dataSummary',
             'loginDeviceMax',
             'activeLoginSessions',
+            'serverSideUsbPrint',
         ));
     }
 

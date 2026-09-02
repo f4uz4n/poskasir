@@ -11,6 +11,23 @@ class WindowsPrinterService
     /** @var array<int,array{name:string,port:?string,driver:?string}>|null */
     protected static ?array $printerListCache = null;
 
+    public function supportsServerSidePrint(): bool
+    {
+        return PHP_OS_FAMILY === 'Windows';
+    }
+
+    /** @return array{server_side_usb:bool,os:string,recommended_usb_mode:string} */
+    public function capabilities(): array
+    {
+        $serverSide = $this->supportsServerSidePrint();
+
+        return [
+            'server_side_usb' => $serverSide,
+            'os' => PHP_OS_FAMILY,
+            'recommended_usb_mode' => $serverSide ? 'windows' : 'serial',
+        ];
+    }
+
     /** @return array<int,array{name:string,port:?string,driver:?string}> */
     public function listPrinters(): array
     {

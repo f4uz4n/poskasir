@@ -8,10 +8,42 @@ use Illuminate\Support\Facades\Auth;
 
 class PrinterController extends Controller
 {
+    public function capabilities(WindowsPrinterService $printers)
+    {
+        return response()->json([
+            'success' => true,
+            ...$printers->capabilities(),
+        ]);
+    }
+
     public function devices(WindowsPrinterService $printers)
     {
         $settings = Auth::user()->storeOwner()->storeSetting;
         $extra = is_array($settings?->extra) ? $settings->extra : [];
+        $caps = $printers->capabilities();
+
+        if (! $caps['server_side_usb']) {
+            return response()->json([
+                'success' => true,
+                'printers' => [],
+                'usable_printers' => [],
+                'printer_options' => [],
+                'pos_printers' => [],
+                'usb_devices' => [],
+                'com_ports' => [],
+                'com_options' => [],
+                'suggested' => null,
+                'saved' => [
+                    'windows_printer' => $extra['windows_printer'] ?? $settings?->printer_name,
+                    'cash_drawer_windows_printer' => $extra['cash_drawer_windows_printer'] ?? null,
+                    'com_port' => $extra['com_port'] ?? null,
+                    'usb_port' => $extra['usb_port'] ?? null,
+                    'usb_mode' => $extra['printer_usb_mode'] ?? 'serial',
+                    'baud' => $extra['printer_baud'] ?? 9600,
+                ],
+                ...$caps,
+            ]);
+        }
 
         $list = $printers->listPrinters();
         $usable = $printers->listUsablePrinters();
@@ -43,6 +75,7 @@ class PrinterController extends Controller
                 'usb_mode' => $extra['printer_usb_mode'] ?? 'windows',
                 'baud' => $extra['printer_baud'] ?? 9600,
             ],
+            ...$caps,
         ]);
     }
 
