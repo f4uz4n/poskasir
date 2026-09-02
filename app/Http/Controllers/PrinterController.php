@@ -60,6 +60,7 @@ class PrinterController extends Controller
     {
         $data = $request->validate([
             'bytes' => ['required', 'string'],
+            'text' => ['nullable', 'string'],
             'printer_name' => ['nullable', 'string', 'max:255'],
             'com_port' => ['nullable', 'string', 'max:20'],
             'usb_port' => ['nullable', 'string', 'max:20'],
@@ -85,9 +86,16 @@ class PrinterController extends Controller
 
         $usb = $data['usb_port'] ?: ($extra['usb_port'] ?? null);
         $baud = (int) ($extra['printer_baud'] ?? 9600);
+        $plainText = null;
+        if (! empty($data['text'])) {
+            $decoded = base64_decode($data['text'], true);
+            if ($decoded !== false && $decoded !== '') {
+                $plainText = $decoded;
+            }
+        }
 
         try {
-            $result = $printers->printRaw($raw, $name, $com, $baud, $usb);
+            $result = $printers->printRaw($raw, $name, $com, $baud, $usb, $plainText, $extra);
 
             return response()->json([
                 'success' => true,

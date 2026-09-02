@@ -153,9 +153,9 @@
                             @endif
                         </select>
                         <p class="text-xs text-slate-500 mt-1">
-                            Pilih printer Windows ATAU port COM. Untuk <strong>GP-58MB / Gprinter</strong>: jika cetak gagal,
-                            tambah printer <strong>Generic / Text Only</strong> pada port USB yang sama, atau pilih port COM di daftar.
-                            Tutup Gainscha/Gprinter Utility saat cetak dari KasirFlow.
+                            Pilih printer Windows ATAU port COM. Jika <strong>Word bisa cetak</strong> tapi KasirFlow tidak:
+                            pastikan nama printer sama persis, klik <strong>Deteksi</strong>, lalu <strong>Tes cetak</strong>.
+                            KasirFlow otomatis memakai driver Windows (seperti Word) untuk printer Gprinter/GP-58MB.
                             Banyak thermal (RPP/Hakpost) hanya tampil sebagai COM — pilih COM-nya.
                         </p>
                     </div>

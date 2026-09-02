@@ -44,14 +44,14 @@ public class KasirFlowRawPrinter {
     [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
     public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
 
-    public static bool SendBytes(string printerName, byte[] bytes) {
+    public static bool SendBytes(string printerName, byte[] bytes, string dataType = "RAW") {
         IntPtr hPrinter = IntPtr.Zero;
         IntPtr pUnmanagedBytes = IntPtr.Zero;
         bool success = false;
         try {
             DOCINFOA di = new DOCINFOA();
             di.pDocName = "KasirFlow RAW";
-            di.pDataType = "RAW";
+            di.pDataType = dataType ?? "RAW";
             int written = 0;
             pUnmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
             Marshal.Copy(bytes, 0, pUnmanagedBytes, bytes.Length);
@@ -82,9 +82,14 @@ public class KasirFlowRawPrinter {
 "@
 
 $bytes = [System.IO.File]::ReadAllBytes($FilePath)
-$ok = [KasirFlowRawPrinter]::SendBytes($PrinterName, $bytes)
-if (-not $ok) {
-    throw "Windows menolak kirim RAW ke printer '$PrinterName'. Pastikan printer USB terpasang dan namanya benar."
+$dataTypes = @('RAW', 'TEXT', 'XPS_PASS')
+
+foreach ($dt in $dataTypes) {
+    $ok = [KasirFlowRawPrinter]::SendBytes($PrinterName, $bytes, $dt)
+    if ($ok) {
+        Write-Output "OK"
+        exit 0
+    }
 }
 
-Write-Output "OK"
+throw "Windows menolak kirim data ke printer '$PrinterName'. Coba mode driver di Pengaturan atau pasang Generic/Text Only."

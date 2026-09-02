@@ -239,14 +239,114 @@ class WindowsPrinterService
         return null;
     }
 
-    public function printRaw(string $bytes, ?string $printerName = null, ?string $comPort = null, int $baud = 9600, ?string $usbPort = null): array
+    /** Driver OEM (Gprinter dll.) — Word bisa cetak, RAW ESC/POS sering tidak keluar. */
+    public function prefersDriverRender(array $printer): bool
     {
+        if ($this->isVirtualPrinter($printer)) {
+            return false;
+        }
+
+        if ($this->isGenericTextDriver($printer)) {
+            return false;
+        }
+
+        return $this->prefersDirectPort($printer);
+    }
+
+    protected function resolveRenderMode(?array $extra = null): string
+    {
+        $mode = strtolower(trim((string) ($extra['printer_usb_render'] ?? 'auto')));
+
+        return in_array($mode, ['auto', 'raw', 'driver'], true) ? $mode : 'auto';
+    }
+
+    protected function shouldTryDriverFirst(?array $meta, string $renderMode, ?string $plainText): bool
+    {
+        if ($plainText === null || trim($plainText) === '') {
+            return false;
+        }
+        if ($renderMode === 'driver') {
+            return true;
+        }
+        if ($renderMode === 'raw') {
+            return false;
+        }
+
+        return $meta !== null && $this->prefersDriverRender($meta);
+    }
+
+    protected function writeDriverText(string $printerName, string $text): void
+    {
+        $printerName = trim($printerName);
+        if ($printerName === '') {
+            throw new \RuntimeException('Nama printer kosong.');
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'kftxt');
+        if ($tmp === false) {
+            throw new \RuntimeException('Tidak bisa membuat file sementara untuk cetak teks.');
+        }
+        $txt = $tmp.'.txt';
+        file_put_contents($txt, "\xEF\xBB\xBF".$text);
+        @unlink($tmp);
+
+        $script = base_path('scripts/windows-text-print.ps1');
+        $process = new Process([
+            'powershell',
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            $script,
+            '-PrinterName',
+            $printerName,
+            '-FilePath',
+            $txt,
+        ]);
+        $process->setTimeout(20);
+        $process->run();
+        @unlink($txt);
+
+        if (! $process->isSuccessful()) {
+            throw new \RuntimeException(trim($process->getErrorOutput().' '.$process->getOutput()) ?: 'Cetak driver gagal');
+        }
+    }
+
+    /** @return array{ok:bool,via:string,target:string}|null */
+    protected function tryDriverTextTargets(array $names, string $plainText, array &$errors): ?array
+    {
+        foreach (array_values(array_unique(array_filter(array_map('trim', $names)))) as $name) {
+            if ($name === '' || $this->isVirtualPrinter(['name' => $name])) {
+                continue;
+            }
+            try {
+                $this->writeDriverText($name, $plainText);
+
+                return ['ok' => true, 'via' => 'windows-driver', 'target' => $name];
+            } catch (Throwable $e) {
+                $errors[] = 'Driver '.$name.': '.$e->getMessage();
+            }
+        }
+
+        return null;
+    }
+
+    public function printRaw(
+        string $bytes,
+        ?string $printerName = null,
+        ?string $comPort = null,
+        int $baud = 9600,
+        ?string $usbPort = null,
+        ?string $plainText = null,
+        ?array $settingsExtra = null,
+    ): array {
         $errors = [];
+        $renderMode = $this->resolveRenderMode($settingsExtra);
         $explicit = $printerName ? trim($printerName) : '';
         $com = $comPort ? strtoupper(trim($comPort)) : null;
         $usb = $usbPort ? strtoupper(trim($usbPort)) : null;
 
-        // Nama "COMx" yang tersimpan sebagai printer_name
+        // Nama "COMx" / "USBxxx" yang tersimpan sebagai printer_name
         if ($explicit !== '' && preg_match('/^COM\d+$/i', $explicit)) {
             $com = strtoupper($explicit);
             $explicit = '';
@@ -258,25 +358,34 @@ class WindowsPrinterService
 
         $meta = $explicit !== '' ? $this->findPrinter($explicit) : null;
         $portTargets = $this->collectPortTargets($meta, $com, $usb);
+        $driverNames = array_filter([$explicit, $meta['name'] ?? null]);
 
-        // 1) Driver Gprinter/Gainscha/GP-58 — kirim langsung ke port USB/COM (paling andal)
-        if ($meta && $this->prefersDirectPort($meta) && $portTargets !== []) {
+        // 0) Mode driver — sama seperti cetak dari Word (driver Windows yang sudah terpasang)
+        if ($this->shouldTryDriverFirst($meta, $renderMode, $plainText)) {
+            $driver = $this->tryDriverTextTargets($driverNames, $plainText, $errors);
+            if ($driver) {
+                return $driver;
+            }
+        }
+
+        // 1) Driver Gprinter/Gainscha — kirim langsung ke port USB/COM (RAW)
+        if ($meta && $this->prefersDirectPort($meta) && $portTargets !== [] && $renderMode !== 'driver') {
             $direct = $this->tryPortTargets($portTargets, $bytes, $baud, $errors);
             if ($direct) {
                 return $direct;
             }
         }
 
-        // 2) Port COM/USB eksplisit (virtual serial)
-        if ($portTargets !== []) {
+        // 2) Port COM/USB eksplisit
+        if ($portTargets !== [] && $renderMode !== 'driver') {
             $direct = $this->tryPortTargets($portTargets, $bytes, $baud, $errors);
             if ($direct) {
                 return $direct;
             }
         }
 
-        // 3) Windows spooler RAW — cocok untuk Generic / Text Only
-        if ($explicit !== '' && ! $this->isVirtualPrinter(['name' => $explicit])) {
+        // 3) Windows spooler RAW
+        if ($explicit !== '' && ! $this->isVirtualPrinter(['name' => $explicit]) && $renderMode !== 'driver') {
             try {
                 $this->writeWinspool($explicit, $bytes);
 
@@ -293,7 +402,6 @@ class WindowsPrinterService
                 $errors[] = 'WindowsPrintConnector '.$explicit.': '.$e->getMessage();
             }
 
-            // Fallback port dari printer Windows (GP-58MB sering gagal lewat spooler)
             if ($meta && ! empty($meta['port']) && preg_match('/^(USB\d+|COM\d+)/i', (string) $meta['port'], $m)) {
                 try {
                     $this->writePort($m[1], $bytes, $baud);
@@ -308,39 +416,49 @@ class WindowsPrinterService
         $target = $this->guessRppPrinter($explicit !== '' ? $explicit : null);
         if ($target) {
             $guessPorts = $this->collectPortTargets($target, $com, $usb);
-            if ($this->prefersDirectPort($target) && $guessPorts !== []) {
+            $driverNames[] = $target['name'];
+
+            if ($this->shouldTryDriverFirst($target, $renderMode, $plainText)) {
+                $driver = $this->tryDriverTextTargets([$target['name']], $plainText, $errors);
+                if ($driver) {
+                    return $driver;
+                }
+            }
+
+            if ($this->prefersDirectPort($target) && $guessPorts !== [] && $renderMode !== 'driver') {
                 $direct = $this->tryPortTargets($guessPorts, $bytes, $baud, $errors);
                 if ($direct) {
                     return $direct;
                 }
             }
 
-            try {
-                $this->writeWinspool($target['name'], $bytes);
+            if ($renderMode !== 'driver') {
+                try {
+                    $this->writeWinspool($target['name'], $bytes);
 
-                return ['ok' => true, 'via' => 'winspool', 'target' => $target['name']];
-            } catch (Throwable $e) {
-                $errors[] = 'Winspool: '.$e->getMessage();
-            }
+                    return ['ok' => true, 'via' => 'winspool', 'target' => $target['name']];
+                } catch (Throwable $e) {
+                    $errors[] = 'Winspool: '.$e->getMessage();
+                }
 
-            try {
-                $this->writeWindowsConnector($target['name'], $bytes);
+                try {
+                    $this->writeWindowsConnector($target['name'], $bytes);
 
-                return ['ok' => true, 'via' => 'windows-connector', 'target' => $target['name']];
-            } catch (Throwable $e) {
-                $errors[] = 'WindowsPrintConnector: '.$e->getMessage();
-            }
+                    return ['ok' => true, 'via' => 'windows-connector', 'target' => $target['name']];
+                } catch (Throwable $e) {
+                    $errors[] = 'WindowsPrintConnector: '.$e->getMessage();
+                }
 
-            if ($guessPorts !== []) {
-                $direct = $this->tryPortTargets($guessPorts, $bytes, $baud, $errors);
-                if ($direct) {
-                    return $direct;
+                if ($guessPorts !== []) {
+                    $direct = $this->tryPortTargets($guessPorts, $bytes, $baud, $errors);
+                    if ($direct) {
+                        return $direct;
+                    }
                 }
             }
         }
 
-        // Hanya coba COM tersimpan / suggested — jangan scan semua COM (bisa hang)
-        if ($com === null && $usb === null) {
+        if ($com === null && $usb === null && $renderMode !== 'driver') {
             $available = $this->listComPorts();
             if (count($available) === 1) {
                 try {
@@ -353,24 +471,34 @@ class WindowsPrinterService
             }
         }
 
-        foreach (range(1, 8) as $n) {
-            $port = sprintf('USB%03d', $n);
-            if (in_array($port, $portTargets, true)) {
-                continue;
-            }
-            try {
-                $this->writePort($port, $bytes, $baud);
+        if ($renderMode !== 'driver') {
+            foreach (range(1, 8) as $n) {
+                $port = sprintf('USB%03d', $n);
+                if (in_array($port, $portTargets, true)) {
+                    continue;
+                }
+                try {
+                    $this->writePort($port, $bytes, $baud);
 
-                return ['ok' => true, 'via' => 'usb-port', 'target' => $port];
-            } catch (Throwable $e) {
-                $errors[] = $port.': '.$e->getMessage();
+                    return ['ok' => true, 'via' => 'usb-port', 'target' => $port];
+                } catch (Throwable $e) {
+                    $errors[] = $port.': '.$e->getMessage();
+                }
             }
         }
 
-        $hint = 'Gagal cetak USB (GP-58MB/Gprinter). Coba: (1) Control Panel → Devices and Printers → tambah printer '
-            .'Generic/Text Only pada port USB yang sama, ATAU (2) pilih port COM di Pengaturan, lalu Tes cetak. ';
+        // Fallback terakhir: cetak teks lewat driver (seperti Word)
+        if ($plainText !== null && trim($plainText) !== '') {
+            $driver = $this->tryDriverTextTargets($driverNames, $plainText, $errors);
+            if ($driver) {
+                return $driver;
+            }
+        }
+
+        $hint = 'Gagal cetak USB. Jika Word bisa cetak: pastikan nama printer di Pengaturan sama persis dengan Windows, '
+            .'lalu klik Deteksi → Tes cetak. Tutup aplikasi driver printer (Gainscha/Gprinter Utility). ';
         if (stripos(implode(' ', $errors), 'access') !== false || stripos(implode(' ', $errors), 'denied') !== false) {
-            $hint .= 'Port sedang dipakai driver lain — tutup aplikasi printer/Gainscha Utility, atau pakai Generic/Text Only. ';
+            $hint .= 'Akses ditolak — jalankan XAMPP/Apache sebagai user Windows yang sama, atau gunakan `php artisan serve`. ';
         }
 
         throw new \RuntimeException($hint.implode(' | ', array_slice($errors, 0, 3)));

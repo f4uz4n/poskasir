@@ -175,6 +175,72 @@ function loadLogoImage(url) {
     });
 }
 
+function paymentLabel(method = '') {
+    const m = String(method || '').toLowerCase();
+    if (m === 'cash') return 'Tunai';
+    if (m === 'qris') return 'QRIS';
+    if (m === 'transfer') return 'Transfer';
+    if (m === 'card') return 'Kartu';
+    if (m === 'credit') return 'Piutang';
+    if (m === 'other') return 'Lainnya';
+    return method || '-';
+}
+
+export function buildReceiptText(transaction, settings = {}, profile = null) {
+    const resolved = profile || resolveProfile(settings);
+    const cols = columnsFor(resolved.paper);
+    const header = settings.receipt_header || settings.store_name || 'KasirFlow';
+    const footer = settings.receipt_footer || 'Terima kasih';
+    const soldAt = transaction.sold_at
+        ? new Date(transaction.sold_at).toLocaleString('id-ID')
+        : new Date().toLocaleString('id-ID');
+    const lines = [];
+
+    const push = (t = '') => lines.push(String(t));
+    const rule = () => push('-'.repeat(cols));
+
+    push(header.toUpperCase());
+    if (settings.store_address) push(settings.store_address);
+    if (settings.store_phone) push(settings.store_phone);
+    rule();
+    push(`No   : ${transaction.invoice_number || transaction.local_id || '-'}`);
+    push(`Tgl  : ${soldAt}`);
+    push(`Tipe : ${transaction.order_type === 'takeaway' ? 'Take Away' : 'Dine In'}`);
+    if (transaction.order_type === 'dine_in' && transaction.table_number) {
+        push(`Meja : ${transaction.table_number}`);
+    }
+    if (transaction.customer_name) push(`Cust : ${transaction.customer_name}`);
+    rule();
+
+    (transaction.items || []).forEach((item) => {
+        push(item.product_name || '-');
+        push(padLine(
+            `  ${item.qty} x ${money(item.price)}`,
+            money(item.subtotal ?? (item.qty * item.price)),
+            cols,
+        ));
+    });
+
+    rule();
+    push(padLine('Subtotal', money(transaction.subtotal), cols));
+    if (Number(transaction.discount) > 0) push(padLine('Diskon', money(transaction.discount), cols));
+    if (Number(transaction.tax) > 0) push(padLine('Pajak', money(transaction.tax), cols));
+    push(padLine('TOTAL', money(transaction.total), cols));
+    push(padLine(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid), cols));
+    push(padLine('Kembali', money(transaction.change), cols));
+    rule();
+    String(footer || 'Terima kasih')
+        .split(/\r\n|\n|\r/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .forEach((line) => push(line));
+    push('');
+    push('');
+    push('');
+
+    return lines.join('\r\n');
+}
+
 export function buildReceipt(transaction, settings = {}, profile = null, options = {}) {
     const resolved = profile || resolveProfile(settings);
     const printOptions = options.printOptions || options || profile?.printOptions || {};
@@ -1076,22 +1142,22 @@ class PosPrinter {
         };
     }
 
-    async writeBytes(bytes) {
+    async writeBytes(bytes, plainText = null) {
         const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
         const prefer = this.settings.printer_type || 'bluetooth';
 
-        // USB: selalu lewat Windows RAW (sama seperti Tes cetak di Pengaturan)
+        // USB: selalu lewat Windows (RAW + teks driver seperti Word)
         if (prefer === 'usb') {
             if (this.type !== 'windows') {
                 await this.connectWindowsUsb();
             }
             const target = this.resolveUsbTargets();
-            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort);
+            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort, plainText);
         }
 
         if (this.type === 'windows') {
             const target = this.resolveUsbTargets();
-            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort);
+            return this.sendWindowsRaw(data, target.printerName, target.comPort, target.usbPort, plainText);
         }
 
         if (this.type === 'bluetooth' || prefer === 'bluetooth') {
@@ -1142,7 +1208,7 @@ class PosPrinter {
         throw new Error('Printer belum siap. Buka Pengaturan → Deteksi → Tes cetak.');
     }
 
-    async sendWindowsRaw(bytes, printerName = null, comPort = null, usbPort = null) {
+    async sendWindowsRaw(bytes, printerName = null, comPort = null, usbPort = null, plainText = null) {
         const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
         const url = window.POS_CONFIG?.routes?.printerRaw;
         if (!url) {
@@ -1173,6 +1239,10 @@ class PosPrinter {
             name = null;
         }
 
+        const textPayload = plainText != null
+            ? this.textToBase64(plainText)
+            : null;
+
         const attempts = [
             { printer_name: name, com_port: com, usb_port: usb },
             { printer_name: name, com_port: com, usb_port: null },
@@ -1192,6 +1262,14 @@ class PosPrinter {
             if (seen.has(key)) continue;
             seen.add(key);
 
+            const body = {
+                bytes: this.bytesToBase64(data),
+                printer_name: attempt.printer_name,
+                com_port: attempt.com_port,
+                usb_port: attempt.usb_port,
+            };
+            if (textPayload) body.text = textPayload;
+
             const res = await fetch(url, {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -1201,12 +1279,7 @@ class PosPrinter {
                     'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
                     'X-Requested-With': 'XMLHttpRequest',
                 },
-                body: JSON.stringify({
-                    bytes: this.bytesToBase64(data),
-                    printer_name: attempt.printer_name,
-                    com_port: attempt.com_port,
-                    usb_port: attempt.usb_port,
-                }),
+                body: JSON.stringify(body),
             });
             const json = await res.json().catch(() => ({}));
             if (res.ok && json.success) {
@@ -1227,6 +1300,11 @@ class PosPrinter {
         }
 
         throw new Error(lastError);
+    }
+
+    textToBase64(text) {
+        const bytes = new TextEncoder().encode(String(text || ''));
+        return this.bytesToBase64(bytes);
     }
 
     async openCashDrawer(options = {}) {
@@ -1314,12 +1392,13 @@ class PosPrinter {
 
         const openDrawer = shouldOpenDrawer(transaction, this.settings, options);
         const logoImage = await loadLogoImage(this.settings.logo_url);
+        const receiptText = buildReceiptText(transaction, this.settings, this.profile, options);
         const bytes = buildReceipt(transaction, this.settings, this.profile, {
             ...options,
-            openDrawer: false, // jangan sisipkan kick di bytes struk
+            openDrawer: false,
             logoImage,
         });
-        await this.writeBytes(bytes);
+        await this.writeBytes(bytes, receiptText);
 
         let drawerError = null;
         if (openDrawer) {
