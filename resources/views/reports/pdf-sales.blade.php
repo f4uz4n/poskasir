@@ -20,11 +20,15 @@
     <div class="muted">Laporan Penjualan & HPP · {{ \Carbon\Carbon::parse($from)->format('d/m/Y') }} — {{ \Carbon\Carbon::parse($to)->format('d/m/Y') }}</div>
 
     <table class="summary">
-        <tr><td>Penjualan bersih</td><td>Rp {{ number_format($summary['net_sales'], 0, ',', '.') }}</td></tr>
+        <tr><td>Penjualan kotor</td><td>Rp {{ number_format($summary['gross_sales'], 0, ',', '.') }}</td></tr>
+        <tr><td>Diskon</td><td>Rp {{ number_format($summary['discount'], 0, ',', '.') }}</td></tr>
+        <tr><td>Omzet setelah diskon</td><td>Rp {{ number_format($summary['revenue'], 0, ',', '.') }}</td></tr>
+        <tr><td>Pajak</td><td>Rp {{ number_format($summary['tax'], 0, ',', '.') }}</td></tr>
+        <tr><td>Total bayar</td><td>Rp {{ number_format($summary['net_sales'], 0, ',', '.') }}</td></tr>
         <tr><td>HPP</td><td>Rp {{ number_format($summary['hpp'], 0, ',', '.') }}</td></tr>
         <tr><td>Laba kotor</td><td>Rp {{ number_format($summary['gross_profit'], 0, ',', '.') }}</td></tr>
         <tr><td>Margin</td><td>{{ number_format($summary['margin'], 2, ',', '.') }}%</td></tr>
-        <tr><td>Transaksi</td><td>{{ $summary['trx_count'] }} (Dine In {{ $summary['dine_in'] }} / Take Away {{ $summary['takeaway'] }})</td></tr>
+        <tr><td>Transaksi selesai</td><td>{{ $summary['trx_count'] }} (Dine In {{ $summary['dine_in'] }} / Take Away {{ $summary['takeaway'] }})</td></tr>
     </table>
 
     <div class="section">Penjualan harian</div>
@@ -68,7 +72,7 @@
                 <tr>
                     <td>{{ $p->product_name }}</td>
                     <td class="right">{{ $p->qty }}</td>
-                    <td class="right">{{ number_format($p->sales, 0, ',', '.') }}</td>
+                    <td class="right">{{ number_format($p->revenue ?? $p->sales, 0, ',', '.') }}</td>
                     <td class="right">{{ number_format($p->profit, 0, ',', '.') }}</td>
                 </tr>
             @empty

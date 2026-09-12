@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Transaction;
 use App\Models\TransactionItem;
+use App\Services\ReportPeriodService;
 use App\Services\SalesReportExcelExport;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -13,6 +14,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
+    public function __construct(
+        protected ReportPeriodService $period
+    ) {}
+
     public function index(Request $request)
     {
         $payload = $this->buildReportPayload($request);
@@ -57,17 +62,7 @@ class ReportController extends Controller
     }
 
     /**
-     * @return array{
-     *     from: string,
-     *     to: string,
-     *     orderType: ?string,
-     *     summary: array<string, mixed>,
-     *     daily: \Illuminate\Support\Collection,
-     *     topProducts: \Illuminate\Support\Collection,
-     *     byPayment: \Illuminate\Support\Collection,
-     *     allTransactions: \Illuminate\Database\Eloquent\Collection,
-     *     baseQuery: \Illuminate\Database\Eloquent\Builder
-     * }
+     * @return array<string, mixed>
      */
     private function buildReportPayload(Request $request): array
     {
@@ -75,94 +70,101 @@ class ReportController extends Controller
 
         $from = $request->get('from', now()->startOfMonth()->toDateString());
         $to = $request->get('to', now()->toDateString());
-        $orderType = $request->get('order_type');
+        $orderType = $request->get('order_type') ?: null;
 
-        $baseQuery = Transaction::where('user_id', $ownerId)
-            ->where('status', 'completed')
-            ->whereDate('sold_at', '>=', $from)
-            ->whereDate('sold_at', '<=', $to)
-            ->when($orderType, fn ($q) => $q->where('order_type', $orderType));
+        $baseQuery = Transaction::query()
+            ->where('user_id', $ownerId)
+            ->where('status', 'completed');
+        $this->period->applySoldAtRange($baseQuery, $from, $to);
+        if ($orderType) {
+            $baseQuery->where('order_type', $orderType);
+        }
 
-        $summary = [
-            'trx_count' => (clone $baseQuery)->count(),
-            'gross_sales' => (clone $baseQuery)->sum('subtotal'),
-            'discount' => (clone $baseQuery)->sum('discount'),
-            'tax' => (clone $baseQuery)->sum('tax'),
-            'net_sales' => (clone $baseQuery)->sum('total'),
-            'dine_in' => (clone $baseQuery)->where('order_type', 'dine_in')->count(),
-            'takeaway' => (clone $baseQuery)->where('order_type', 'takeaway')->count(),
-        ];
+        $itemsBase = TransactionItem::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
+            ->where('transactions.user_id', $ownerId)
+            ->where('transactions.status', 'completed');
+        $this->period->applySoldAtRange($itemsBase, $from, $to, 'transactions.sold_at');
+        if ($orderType) {
+            $itemsBase->where('transactions.order_type', $orderType);
+        }
 
-        $hpp = TransactionItem::query()
-            ->whereHas('transaction', function ($q) use ($ownerId, $from, $to, $orderType) {
-                $q->where('user_id', $ownerId)
-                    ->where('status', 'completed')
-                    ->whereDate('sold_at', '>=', $from)
-                    ->whereDate('sold_at', '<=', $to)
-                    ->when($orderType, fn ($qq) => $qq->where('order_type', $orderType));
-            })
-            ->selectRaw('COALESCE(SUM(cost * qty), 0) as total_hpp, COALESCE(SUM(subtotal), 0) as item_sales, COALESCE(SUM(qty), 0) as total_qty')
-            ->first();
+        $summary = $this->period->salesSummaryFromQuery($baseQuery, $itemsBase);
 
-        $summary['hpp'] = (float) ($hpp->total_hpp ?? 0);
-        $summary['item_sales'] = (float) ($hpp->item_sales ?? 0);
-        $summary['total_qty'] = (int) ($hpp->total_qty ?? 0);
-        $summary['gross_profit'] = (float) $summary['net_sales'] - (float) $summary['hpp'];
-        $summary['margin'] = $summary['net_sales'] > 0
-            ? round(($summary['gross_profit'] / $summary['net_sales']) * 100, 2)
-            : 0;
+        $dateExpr = $this->period->sqlDateExpression('sold_at');
+        $dateExprTx = $this->period->sqlDateExpression('transactions.sold_at');
 
         $daily = (clone $baseQuery)
             ->select(
-                DB::raw('DATE(sold_at) as date'),
+                DB::raw("{$dateExpr} as date"),
                 DB::raw('COUNT(*) as trx_count'),
+                DB::raw('SUM(subtotal) as gross_sales'),
+                DB::raw('SUM(discount) as discount'),
+                DB::raw('SUM(tax) as tax'),
                 DB::raw('SUM(total) as sales'),
                 DB::raw("SUM(CASE WHEN order_type = 'dine_in' THEN 1 ELSE 0 END) as dine_in"),
                 DB::raw("SUM(CASE WHEN order_type = 'takeaway' THEN 1 ELSE 0 END) as takeaway")
             )
-            ->groupBy('date')
+            ->groupByRaw($dateExpr)
             ->orderBy('date')
             ->get();
 
-        $dailyHpp = TransactionItem::query()
-            ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
-            ->where('transactions.user_id', $ownerId)
-            ->where('transactions.status', 'completed')
-            ->whereDate('transactions.sold_at', '>=', $from)
-            ->whereDate('transactions.sold_at', '<=', $to)
-            ->when($orderType, fn ($q) => $q->where('transactions.order_type', $orderType))
+        $dailyHpp = (clone $itemsBase)
             ->select(
-                DB::raw('DATE(transactions.sold_at) as date'),
-                DB::raw('SUM(transaction_items.cost * transaction_items.qty) as hpp')
+                DB::raw("{$dateExprTx} as date"),
+                DB::raw('SUM(transaction_items.cost * transaction_items.qty) as hpp'),
+                DB::raw('SUM(transaction_items.qty) as qty')
             )
-            ->groupBy('date')
-            ->pluck('hpp', 'date');
+            ->groupByRaw($dateExprTx)
+            ->get()
+            ->keyBy(fn ($row) => $this->period->normalizeDateKey($row->date));
 
         $daily = $daily->map(function ($row) use ($dailyHpp) {
-            $row->hpp = (float) ($dailyHpp[$row->date] ?? 0);
-            $row->profit = (float) $row->sales - $row->hpp;
+            $key = $this->period->normalizeDateKey($row->date);
+            $row->date = $key;
+            $hppRow = $dailyHpp->get($key);
+            $row->hpp = (float) ($hppRow->hpp ?? 0);
+            $row->qty = (int) ($hppRow->qty ?? 0);
+            $revenue = (float) $row->gross_sales - (float) $row->discount;
+            $row->revenue = round($revenue, 2);
+            $row->profit = round($revenue - (float) $row->hpp, 2);
 
             return $row;
         });
 
-        $topProducts = TransactionItem::query()
-            ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
-            ->where('transactions.user_id', $ownerId)
-            ->where('transactions.status', 'completed')
-            ->whereDate('transactions.sold_at', '>=', $from)
-            ->whereDate('transactions.sold_at', '<=', $to)
-            ->when($orderType, fn ($q) => $q->where('transactions.order_type', $orderType))
+        $dailyTotals = [
+            'trx_count' => (int) $daily->sum('trx_count'),
+            'sales' => (float) $daily->sum('sales'),
+            'revenue' => (float) $daily->sum('revenue'),
+            'hpp' => (float) $daily->sum('hpp'),
+            'profit' => (float) $daily->sum('profit'),
+        ];
+
+        // Alokasi diskon header proporsional ke item agar laba produk selaras dengan laba periode
+        $topProducts = (clone $itemsBase)
             ->select(
                 'transaction_items.product_name',
                 DB::raw('SUM(transaction_items.qty) as qty'),
                 DB::raw('SUM(transaction_items.subtotal) as sales'),
-                DB::raw('SUM(transaction_items.cost * transaction_items.qty) as hpp'),
-                DB::raw('SUM(transaction_items.subtotal) - SUM(transaction_items.cost * transaction_items.qty) as profit')
+                DB::raw('SUM(transaction_items.cost * transaction_items.qty) as hpp')
             )
             ->groupBy('transaction_items.product_name')
             ->orderByDesc('qty')
             ->limit(15)
-            ->get();
+            ->get()
+            ->map(function ($p) use ($summary) {
+                $itemSales = (float) $p->sales;
+                $share = $summary['item_sales'] > 0 ? ($itemSales / $summary['item_sales']) : 0;
+                $allocatedDiscount = $summary['discount'] * $share;
+                $revenue = round($itemSales - $allocatedDiscount, 2);
+                $hpp = (float) $p->hpp;
+                $p->sales = $itemSales;
+                $p->revenue = $revenue;
+                $p->hpp = $hpp;
+                $p->profit = round($revenue - $hpp, 2);
+
+                return $p;
+            });
 
         $byPayment = (clone $baseQuery)
             ->select('payment_method', DB::raw('COUNT(*) as trx_count'), DB::raw('SUM(total) as total'))
@@ -173,6 +175,24 @@ class ReportController extends Controller
             ->latest('sold_at')
             ->get();
 
-        return compact('from', 'to', 'orderType', 'summary', 'daily', 'topProducts', 'byPayment', 'allTransactions', 'baseQuery');
+        $detailTotals = [
+            'trx_count' => $allTransactions->count(),
+            'sales' => (float) $allTransactions->sum('total'),
+            'revenue' => round((float) $allTransactions->sum('subtotal') - (float) $allTransactions->sum('discount'), 2),
+        ];
+
+        return compact(
+            'from',
+            'to',
+            'orderType',
+            'summary',
+            'daily',
+            'dailyTotals',
+            'topProducts',
+            'byPayment',
+            'allTransactions',
+            'detailTotals',
+            'baseQuery'
+        );
     }
 }

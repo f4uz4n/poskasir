@@ -11,28 +11,29 @@ use Illuminate\Support\Facades\DB;
 
 class StoreReportService
 {
+    public function __construct(
+        protected ReportPeriodService $period
+    ) {}
+
     public function salesSummary(int $ownerId, string $from, string $to): array
     {
-        $baseQuery = Transaction::where('user_id', $ownerId)
-            ->where('status', 'completed')
-            ->whereDate('sold_at', '>=', $from)
-            ->whereDate('sold_at', '<=', $to);
+        $baseQuery = Transaction::query()
+            ->where('user_id', $ownerId)
+            ->where('status', 'completed');
+        $this->period->applySoldAtRange($baseQuery, $from, $to);
 
-        $netSales = (float) (clone $baseQuery)->sum('total');
-        $hpp = $this->totalHpp($ownerId, $from, $to);
-        $grossProfit = $netSales - $hpp;
+        $itemsBase = TransactionItem::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
+            ->where('transactions.user_id', $ownerId)
+            ->where('transactions.status', 'completed');
+        $this->period->applySoldAtRange($itemsBase, $from, $to, 'transactions.sold_at');
 
-        return [
-            'trx_count' => (clone $baseQuery)->count(),
-            'gross_sales' => (float) (clone $baseQuery)->sum('subtotal'),
-            'discount' => (float) (clone $baseQuery)->sum('discount'),
-            'tax' => (float) (clone $baseQuery)->sum('tax'),
-            'net_sales' => $netSales,
-            'hpp' => $hpp,
-            'gross_profit' => $grossProfit,
-            'margin' => $netSales > 0 ? round(($grossProfit / $netSales) * 100, 2) : 0,
-            'roi' => $hpp > 0 ? round(($grossProfit / $hpp) * 100, 2) : 0,
-        ];
+        $summary = $this->period->salesSummaryFromQuery($baseQuery, $itemsBase);
+        $summary['roi'] = $summary['hpp'] > 0
+            ? round(($summary['gross_profit'] / $summary['hpp']) * 100, 2)
+            : 0;
+
+        return $summary;
     }
 
     public function stockSummary(int $ownerId): array
@@ -55,10 +56,10 @@ class StoreReportService
     {
         $sales = $this->salesSummary($ownerId, $from, $to);
 
-        $purchaseQuery = Purchase::where('user_id', $ownerId)
-            ->where('status', 'completed')
-            ->whereDate('purchased_at', '>=', $from)
-            ->whereDate('purchased_at', '<=', $to);
+        $purchaseQuery = Purchase::query()
+            ->where('user_id', $ownerId)
+            ->where('status', 'completed');
+        $this->period->applyPurchasedAtRange($purchaseQuery, $from, $to);
 
         return array_merge($sales, [
             'purchase_total' => (float) (clone $purchaseQuery)->sum('total'),
@@ -71,42 +72,56 @@ class StoreReportService
     /** ROI harian: (laba kotor / HPP) × 100 */
     public function roiChart(int $ownerId, int $days = 7): Collection
     {
-        $from = now()->subDays($days - 1)->startOfDay()->toDateString();
+        $from = now()->subDays($days - 1)->toDateString();
         $to = now()->toDateString();
 
-        $dailySales = Transaction::where('user_id', $ownerId)
-            ->where('status', 'completed')
-            ->whereDate('sold_at', '>=', $from)
-            ->whereDate('sold_at', '<=', $to)
-            ->select(DB::raw('DATE(sold_at) as date'), DB::raw('SUM(total) as sales'))
-            ->groupBy('date')
-            ->orderBy('date')
-            ->pluck('sales', 'date');
+        $dateExpr = $this->period->sqlDateExpression('sold_at');
+        $dateExprTx = $this->period->sqlDateExpression('transactions.sold_at');
 
-        $dailyHpp = TransactionItem::query()
+        $salesQuery = Transaction::query()
+            ->where('user_id', $ownerId)
+            ->where('status', 'completed');
+        $this->period->applySoldAtRange($salesQuery, $from, $to);
+
+        $dailySales = (clone $salesQuery)
+            ->select(
+                DB::raw("{$dateExpr} as date"),
+                DB::raw('SUM(subtotal) as gross_sales'),
+                DB::raw('SUM(discount) as discount')
+            )
+            ->groupByRaw($dateExpr)
+            ->get()
+            ->keyBy(fn ($row) => $this->period->normalizeDateKey($row->date));
+
+        $itemsBase = TransactionItem::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
             ->where('transactions.user_id', $ownerId)
-            ->where('transactions.status', 'completed')
-            ->whereDate('transactions.sold_at', '>=', $from)
-            ->whereDate('transactions.sold_at', '<=', $to)
+            ->where('transactions.status', 'completed');
+        $this->period->applySoldAtRange($itemsBase, $from, $to, 'transactions.sold_at');
+
+        $dailyHpp = (clone $itemsBase)
             ->select(
-                DB::raw('DATE(transactions.sold_at) as date'),
+                DB::raw("{$dateExprTx} as date"),
                 DB::raw('SUM(transaction_items.cost * transaction_items.qty) as hpp')
             )
-            ->groupBy('date')
-            ->pluck('hpp', 'date');
+            ->groupByRaw($dateExprTx)
+            ->get()
+            ->keyBy(fn ($row) => $this->period->normalizeDateKey($row->date));
 
         $rows = collect();
         for ($i = $days - 1; $i >= 0; $i--) {
             $date = now()->subDays($i)->toDateString();
-            $sales = (float) ($dailySales[$date] ?? 0);
-            $hpp = (float) ($dailyHpp[$date] ?? 0);
-            $profit = $sales - $hpp;
+            $salesRow = $dailySales->get($date);
+            $revenue = $salesRow
+                ? (float) $salesRow->gross_sales - (float) $salesRow->discount
+                : 0.0;
+            $hpp = (float) ($dailyHpp->get($date)->hpp ?? 0);
+            $profit = round($revenue - $hpp, 2);
             $roi = $hpp > 0 ? round(($profit / $hpp) * 100, 2) : 0;
 
             $rows->push([
                 'date' => $date,
-                'sales' => $sales,
+                'sales' => $revenue,
                 'hpp' => $hpp,
                 'profit' => $profit,
                 'roi' => $roi,
@@ -130,7 +145,7 @@ class StoreReportService
             $rows->push([
                 'month' => $month,
                 'label' => $labels[$month - 1],
-                'sales' => $summary['net_sales'],
+                'sales' => $summary['revenue'],
                 'hpp' => $summary['hpp'],
                 'profit' => $summary['gross_profit'],
                 'roi' => $summary['roi'],
@@ -159,18 +174,5 @@ class StoreReportService
         $end = (int) date('Y', strtotime($maxDate ?: now()));
 
         return range($start, $end);
-    }
-
-    private function totalHpp(int $ownerId, string $from, string $to): float
-    {
-        return (float) TransactionItem::query()
-            ->whereHas('transaction', function ($q) use ($ownerId, $from, $to) {
-                $q->where('user_id', $ownerId)
-                    ->where('status', 'completed')
-                    ->whereDate('sold_at', '>=', $from)
-                    ->whereDate('sold_at', '<=', $to);
-            })
-            ->selectRaw('COALESCE(SUM(cost * qty), 0) as v')
-            ->value('v');
     }
 }

@@ -13,19 +13,48 @@ return new class extends Migration
             DB::statement("ALTER TABLE users MODIFY role ENUM('owner','kasir','admin','administrator','keuangan','developer') NOT NULL DEFAULT 'owner'");
         }
 
-        Schema::table('transactions', function (Blueprint $table) {
-            $table->foreignId('voided_by')->nullable()->after('status')->constrained('users')->nullOnDelete();
-            $table->timestamp('voided_at')->nullable()->after('voided_by');
-            $table->text('void_reason')->nullable()->after('voided_at');
-        });
+        if (! Schema::hasColumn('transactions', 'voided_by')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                $table->foreignId('voided_by')->nullable()->after('status')->constrained('users')->nullOnDelete();
+            });
+        }
+
+        if (! Schema::hasColumn('transactions', 'voided_at')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                $after = Schema::hasColumn('transactions', 'voided_by') ? 'voided_by' : 'status';
+                $table->timestamp('voided_at')->nullable()->after($after);
+            });
+        }
+
+        if (! Schema::hasColumn('transactions', 'void_reason')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                $after = Schema::hasColumn('transactions', 'voided_at')
+                    ? 'voided_at'
+                    : (Schema::hasColumn('transactions', 'voided_by') ? 'voided_by' : 'status');
+                $table->text('void_reason')->nullable()->after($after);
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('transactions', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('voided_by');
-            $table->dropColumn(['voided_at', 'void_reason']);
-        });
+        if (Schema::hasColumn('transactions', 'void_reason')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                $table->dropColumn('void_reason');
+            });
+        }
+
+        if (Schema::hasColumn('transactions', 'voided_at')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                $table->dropColumn('voided_at');
+            });
+        }
+
+        if (Schema::hasColumn('transactions', 'voided_by')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                $table->dropConstrainedForeignId('voided_by');
+            });
+        }
 
         if (Schema::getConnection()->getDriverName() === 'mysql') {
             DB::statement("ALTER TABLE users MODIFY role ENUM('owner','kasir','admin','developer') NOT NULL DEFAULT 'owner'");

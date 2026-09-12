@@ -8,15 +8,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('purchases', function (Blueprint $table) {
-            $table->string('supplier_invoice')->nullable()->after('notes');
-        });
+        if (! Schema::hasColumn('purchases', 'supplier_invoice')) {
+            Schema::table('purchases', function (Blueprint $table) {
+                $table->string('supplier_invoice')->nullable()->after('notes');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('purchases', function (Blueprint $table) {
-            $table->dropColumn('supplier_invoice');
-        });
+        if (Schema::hasColumn('purchases', 'supplier_invoice')) {
+            Schema::table('purchases', function (Blueprint $table) {
+                $table->dropColumn('supplier_invoice');
+            });
+        }
     }
 };

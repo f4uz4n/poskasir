@@ -2,7 +2,7 @@
 
 @section('title', 'Laporan')
 @section('heading', 'Laporan Penjualan & HPP')
-@section('subheading', 'Analisis omzet, HPP, dan laba kotor')
+@section('subheading', 'Analisis omzet, HPP, dan laba kotor — hanya transaksi selesai (bukan void)')
 
 @section('content')
 <div class="flex flex-wrap gap-2 mb-4">
@@ -39,11 +39,16 @@
     </div>
 </form>
 
+<p class="text-xs text-slate-500 mb-4">
+    Laba kotor = (penjualan kotor − diskon) − HPP. Pajak tidak dihitung sebagai laba.
+    Rekap harian &amp; detail transaksi memakai filter yang sama; jumlah halaman detail hanya 20 baris per halaman — total periode ada di bawah tabel.
+</p>
+
 <div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
     <div class="card p-5">
-        <div class="text-sm text-slate-500">Penjualan bersih</div>
+        <div class="text-sm text-slate-500">Omzet (total bayar)</div>
         <div class="text-2xl font-extrabold mt-1">Rp {{ number_format($summary['net_sales'], 0, ',', '.') }}</div>
-        <div class="text-xs text-slate-400 mt-1">{{ $summary['trx_count'] }} transaksi</div>
+        <div class="text-xs text-slate-400 mt-1">{{ $summary['trx_count'] }} transaksi selesai</div>
     </div>
     <div class="card p-5">
         <div class="text-sm text-slate-500">HPP</div>
@@ -53,7 +58,7 @@
     <div class="card p-5">
         <div class="text-sm text-slate-500">Laba kotor</div>
         <div class="text-2xl font-extrabold mt-1 text-brand-700">Rp {{ number_format($summary['gross_profit'], 0, ',', '.') }}</div>
-        <div class="text-xs text-slate-400 mt-1">Margin {{ number_format($summary['margin'], 2, ',', '.') }}%</div>
+        <div class="text-xs text-slate-400 mt-1">Margin {{ number_format($summary['margin'], 2, ',', '.') }}% dari omzet setelah diskon</div>
     </div>
     <div class="card p-5">
         <div class="text-sm text-slate-500">Dine In / Take Away</div>
@@ -72,7 +77,7 @@
                         <th class="py-2 pr-2">Tanggal</th>
                         <th class="py-2 pr-2">Trx</th>
                         <th class="py-2 pr-2">Dine/TA</th>
-                        <th class="py-2 pr-2 text-right">Penjualan</th>
+                        <th class="py-2 pr-2 text-right">Omzet</th>
                         <th class="py-2 pr-2 text-right">HPP</th>
                         <th class="py-2 text-right">Laba</th>
                     </tr>
@@ -91,6 +96,17 @@
                         <tr><td colspan="6" class="py-6 text-center text-slate-500">Belum ada data di periode ini.</td></tr>
                     @endforelse
                 </tbody>
+                @if($daily->isNotEmpty())
+                <tfoot>
+                    <tr class="border-t-2 border-slate-200 font-bold bg-slate-50">
+                        <td class="py-2 pr-2" colspan="2">Total rekap</td>
+                        <td class="py-2 pr-2">{{ $dailyTotals['trx_count'] }} trx</td>
+                        <td class="py-2 pr-2 text-right">Rp {{ number_format($dailyTotals['sales'], 0, ',', '.') }}</td>
+                        <td class="py-2 pr-2 text-right">Rp {{ number_format($dailyTotals['hpp'], 0, ',', '.') }}</td>
+                        <td class="py-2 text-right text-brand-700">Rp {{ number_format($dailyTotals['profit'], 0, ',', '.') }}</td>
+                    </tr>
+                </tfoot>
+                @endif
             </table>
         </div>
     </div>
@@ -114,8 +130,9 @@
         <div class="mt-6 pt-4 border-t border-slate-100 text-sm space-y-1">
             <div class="flex justify-between"><span>Penjualan kotor</span><span>Rp {{ number_format($summary['gross_sales'], 0, ',', '.') }}</span></div>
             <div class="flex justify-between"><span>Diskon</span><span>- Rp {{ number_format($summary['discount'], 0, ',', '.') }}</span></div>
+            <div class="flex justify-between"><span>Omzet setelah diskon</span><span>Rp {{ number_format($summary['revenue'], 0, ',', '.') }}</span></div>
             <div class="flex justify-between"><span>Pajak</span><span>Rp {{ number_format($summary['tax'], 0, ',', '.') }}</span></div>
-            <div class="flex justify-between font-bold pt-2"><span>Net sales</span><span>Rp {{ number_format($summary['net_sales'], 0, ',', '.') }}</span></div>
+            <div class="flex justify-between font-bold pt-2"><span>Total bayar</span><span>Rp {{ number_format($summary['net_sales'], 0, ',', '.') }}</span></div>
             <div class="flex justify-between text-amber-700"><span>HPP</span><span>Rp {{ number_format($summary['hpp'], 0, ',', '.') }}</span></div>
             <div class="flex justify-between font-bold text-brand-700"><span>Laba kotor</span><span>Rp {{ number_format($summary['gross_profit'], 0, ',', '.') }}</span></div>
         </div>
@@ -124,7 +141,8 @@
 
 <div class="grid lg:grid-cols-2 gap-4 mb-6">
     <div class="card p-5">
-        <h2 class="font-bold mb-4">Produk terlaris + HPP</h2>
+        <h2 class="font-bold mb-1">Produk terlaris + HPP</h2>
+        <p class="text-xs text-slate-500 mb-4">Diskon struk dialokasikan proporsional ke produk agar laba selaras dengan laba periode.</p>
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
@@ -141,7 +159,7 @@
                         <tr class="border-b border-slate-100">
                             <td class="py-2 pr-2 font-medium">{{ $p->product_name }}</td>
                             <td class="py-2 pr-2 text-right">{{ $p->qty }}</td>
-                            <td class="py-2 pr-2 text-right">Rp {{ number_format($p->sales, 0, ',', '.') }}</td>
+                            <td class="py-2 pr-2 text-right">Rp {{ number_format($p->revenue, 0, ',', '.') }}</td>
                             <td class="py-2 pr-2 text-right">Rp {{ number_format($p->hpp, 0, ',', '.') }}</td>
                             <td class="py-2 text-right font-semibold">Rp {{ number_format($p->profit, 0, ',', '.') }}</td>
                         </tr>
@@ -154,7 +172,8 @@
     </div>
 
     <div class="card p-5">
-        <h2 class="font-bold mb-4">Transaksi periode</h2>
+        <h2 class="font-bold mb-1">Transaksi periode</h2>
+        <p class="text-xs text-slate-500 mb-4">Hanya status selesai. Total seluruh periode (bukan hanya halaman ini): <strong>Rp {{ number_format($detailTotals['sales'], 0, ',', '.') }}</strong> · {{ $detailTotals['trx_count'] }} trx</p>
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
