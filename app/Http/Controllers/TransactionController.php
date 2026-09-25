@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\Receivable;
 use App\Models\Transaction;
 use App\Models\TransactionItem;
+use App\Models\Voucher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -57,7 +58,8 @@ class TransactionController extends Controller
             'total' => ['required', 'numeric', 'min:0'],
             'paid' => ['required', 'numeric', 'min:0'],
             'change' => ['nullable', 'numeric', 'min:0'],
-            'payment_method' => ['required', 'in:cash,qris,transfer,card,credit,other'],
+            'payment_method' => ['required', 'in:cash,qris,transfer,card,credit,voucher,other'],
+            'voucher_code' => ['nullable', 'string', 'max:40'],
             'notes' => ['nullable', 'string'],
             'sold_at' => ['nullable', 'date'],
             'items' => ['required', 'array', 'min:1'],
@@ -72,7 +74,16 @@ class TransactionController extends Controller
         ]);
 
         $isCredit = ($data['payment_method'] ?? '') === 'credit';
-        if (! $isCredit && (float) $data['paid'] + 0.0001 < (float) $data['total']) {
+        $isVoucher = ($data['payment_method'] ?? '') === 'voucher';
+
+        if ($isVoucher && blank($data['voucher_code'] ?? null)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kode voucher wajib diisi / di-scan untuk pembayaran voucher.',
+            ], 422);
+        }
+
+        if (! $isCredit && ! $isVoucher && (float) $data['paid'] + 0.0001 < (float) $data['total']) {
             return response()->json([
                 'success' => false,
                 'message' => 'Jumlah bayar kurang dari total. Gunakan metode Piutang untuk penjualan kredit.',
@@ -95,6 +106,34 @@ class TransactionController extends Controller
         $owner = $actor->storeOwner();
         $settings = $owner->storeSetting;
         $enforceStock = $owner->hasFeature('kunci_stok') && ($settings?->stock_lock_enabled ?? false);
+
+        $voucherCode = $isVoucher ? strtoupper(trim($data['voucher_code'])) : null;
+        if ($isVoucher) {
+            $voucherCheck = Voucher::where('user_id', $ownerId)
+                ->where('code', $voucherCode)
+                ->first();
+
+            if (! $voucherCheck) {
+                return response()->json(['success' => false, 'message' => 'Voucher tidak ditemukan.'], 404);
+            }
+            $voucherCheck->markExpiredIfNeeded();
+            $voucherCheck->refresh();
+            if (! $voucherCheck->isUsable()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Voucher tidak dapat dipakai ('.$voucherCheck->statusLabel().').',
+                ], 422);
+            }
+            if ((float) $voucherCheck->amount + 0.0001 < (float) $data['total']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Nilai voucher kurang. Voucher Rp '.number_format((float) $voucherCheck->amount, 0, ',', '.').', total Rp '.number_format((float) $data['total'], 0, ',', '.').'.',
+                ], 422);
+            }
+
+            $data['paid'] = (float) $data['total'];
+            $data['change'] = 0;
+        }
 
         if (! empty($data['local_id'])) {
             $existing = Transaction::where('user_id', $ownerId)
@@ -126,8 +165,29 @@ class TransactionController extends Controller
             }
         }
 
-        $transaction = DB::transaction(function () use ($data, $ownerId, $actor) {
+        try {
+            $transaction = DB::transaction(function () use ($data, $ownerId, $actor, $isVoucher, $voucherCode) {
             $invoice = 'INV-'.now()->format('YmdHis').'-'.Str::upper(Str::random(4));
+
+            $voucherId = null;
+            $voucherAmount = null;
+
+            if ($isVoucher) {
+                $voucher = Voucher::where('user_id', $ownerId)
+                    ->where('code', $voucherCode)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $voucher || ! $voucher->isUsable()) {
+                    throw new \RuntimeException('Voucher tidak dapat dipakai.');
+                }
+                if ((float) $voucher->amount + 0.0001 < (float) $data['total']) {
+                    throw new \RuntimeException('Nilai voucher kurang dari total belanja.');
+                }
+
+                $voucherId = $voucher->id;
+                $voucherAmount = (float) $voucher->amount;
+            }
 
             $trx = Transaction::create([
                 'user_id' => $ownerId,
@@ -142,14 +202,24 @@ class TransactionController extends Controller
                 'tax' => $data['tax'] ?? 0,
                 'total' => $data['total'],
                 'paid' => $data['paid'],
-                'change' => $data['change'] ?? max(0, $data['paid'] - $data['total']),
+                'change' => $isVoucher ? 0 : ($data['change'] ?? max(0, $data['paid'] - $data['total'])),
                 'payment_method' => $data['payment_method'],
+                'voucher_id' => $voucherId,
+                'voucher_code' => $voucherCode,
+                'voucher_amount' => $voucherAmount,
                 'status' => 'completed',
                 'is_synced' => true,
                 'notes' => $data['notes'] ?? null,
                 'sold_at' => $data['sold_at'] ?? now(),
             ]);
 
+            if ($isVoucher && $voucherId) {
+                Voucher::where('id', $voucherId)->update([
+                    'status' => 'used',
+                    'used_at' => now(),
+                    'used_on_transaction_id' => $trx->id,
+                ]);
+            }
             foreach ($data['items'] as $item) {
                 $cost = $item['cost'] ?? null;
                 if ($cost === null && ! empty($item['product_id'])) {
@@ -195,7 +265,13 @@ class TransactionController extends Controller
             }
 
             return $trx->load('items');
-        });
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
 
         return response()->json([
             'success' => true,

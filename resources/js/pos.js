@@ -94,6 +94,10 @@ export function initPos() {
         barcode: document.getElementById('barcode-input'),
         customer: document.getElementById('customer-name'),
         method: document.getElementById('payment-method'),
+        voucherBox: document.getElementById('voucher-pay-box'),
+        voucherCode: document.getElementById('voucher-code'),
+        voucherInfo: document.getElementById('voucher-info'),
+        btnApplyVoucher: document.getElementById('btn-apply-voucher'),
         tableNumber: document.getElementById('table-number'),
         tableWrap: document.getElementById('table-number-wrap'),
         printerStatus: document.getElementById('printer-status'),
@@ -102,6 +106,8 @@ export function initPos() {
         modal: document.getElementById('checkout-modal'),
         modalMsg: document.getElementById('checkout-message'),
     };
+
+    let appliedVoucher = null;
 
     els.taxLabel.textContent = settings.tax_percent || 0;
     if (els.discount) els.discount.value = '0';
@@ -467,6 +473,71 @@ export function initPos() {
         renderCart();
     }
 
+    function clearVoucher(silent = false) {
+        appliedVoucher = null;
+        if (els.voucherCode) els.voucherCode.value = '';
+        if (els.voucherInfo) {
+            els.voucherInfo.classList.add('hidden');
+            els.voucherInfo.textContent = '';
+        }
+        if (!silent) renderCart();
+    }
+
+    async function lookupVoucher(code, { announce = true } = {}) {
+        const trimmed = String(code || '').trim().toUpperCase();
+        if (!trimmed) {
+            toast('Masukkan / scan kode voucher');
+            return null;
+        }
+        const url = window.POS_CONFIG?.routes?.vouchersLookup;
+        if (!url || !navigator.onLine) {
+            toast('Lookup voucher membutuhkan koneksi online');
+            return null;
+        }
+
+        const t = totals();
+        const res = await fetch(`${url}?code=${encodeURIComponent(trimmed)}&total=${encodeURIComponent(t.total)}`, {
+            headers: { Accept: 'application/json' },
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.success) {
+            clearVoucher(true);
+            toast(json.message || 'Voucher tidak valid');
+            return null;
+        }
+
+        appliedVoucher = json.voucher;
+        if (els.voucherCode) els.voucherCode.value = appliedVoucher.code;
+        if (els.method) {
+            if (window.jQuery) jQuery(els.method).val('voucher').trigger('change');
+            else {
+                els.method.value = 'voucher';
+                onPaymentMethodChange();
+            }
+        }
+        setPaid(Math.min(Number(appliedVoucher.amount || 0), t.total));
+        if (els.voucherInfo) {
+            const ok = appliedVoucher.covers_total;
+            els.voucherInfo.classList.remove('hidden');
+            els.voucherInfo.className = `text-xs font-medium ${ok ? 'text-brand-700' : 'text-rose-600'}`;
+            els.voucherInfo.textContent = ok
+                ? `Voucher ${appliedVoucher.code} · Rp ${Number(appliedVoucher.amount).toLocaleString('id-ID')} · cukup untuk total`
+                : `Voucher Rp ${Number(appliedVoucher.amount).toLocaleString('id-ID')} kurang Rp ${Number(appliedVoucher.shortfall).toLocaleString('id-ID')}`;
+        }
+        if (announce) toast(`Voucher diterapkan: ${appliedVoucher.code}`);
+        renderCart();
+        return appliedVoucher;
+    }
+
+    function syncVoucherBox(method) {
+        const isVoucher = method === 'voucher';
+        els.voucherBox?.classList.toggle('hidden', !isVoucher);
+        if (!isVoucher) clearVoucher(true);
+        if (isVoucher) {
+            setTimeout(() => els.voucherCode?.focus(), 50);
+        }
+    }
+
     async function checkout() {
         if (!cart.length) {
             toast('Keranjang masih kosong');
@@ -480,10 +551,27 @@ export function initPos() {
                 toast('Isi nama pelanggan untuk penjualan piutang');
                 return;
             }
+        } else if (method === 'voucher') {
+            if (!navigator.onLine) {
+                toast('Pembayaran voucher membutuhkan koneksi online');
+                return;
+            }
+            if (!appliedVoucher?.code && !els.voucherCode?.value?.trim()) {
+                toast('Scan / isi kode voucher terlebih dahulu');
+                return;
+            }
+            if (appliedVoucher && Number(appliedVoucher.amount || 0) + 0.0001 < t.total) {
+                toast('Nilai voucher kurang dari total belanja');
+                return;
+            }
         } else if (t.paid < t.total) {
             toast('Jumlah bayar kurang');
             return;
         }
+
+        const voucherCode = method === 'voucher'
+            ? String(appliedVoucher?.code || els.voucherCode?.value || '').trim().toUpperCase()
+            : null;
 
         const payload = {
             local_id: uid(),
@@ -494,9 +582,10 @@ export function initPos() {
             discount: t.discount,
             tax: t.tax,
             total: t.total,
-            paid: method === 'credit' ? Math.min(t.paid, t.total) : t.paid,
-            change: method === 'credit' ? 0 : t.change,
+            paid: method === 'credit' ? Math.min(t.paid, t.total) : (method === 'voucher' ? t.total : t.paid),
+            change: method === 'credit' || method === 'voucher' ? 0 : t.change,
             payment_method: method,
+            voucher_code: voucherCode,
             sold_at: new Date().toISOString(),
             items: cart.map((c) => ({
                 ...c,
@@ -563,6 +652,7 @@ export function initPos() {
 
         cart = [];
         setPaid(0);
+        clearVoucher(true);
         els.customer.value = '';
         if (els.discount) els.discount.value = '0';
         if (els.tableNumber) els.tableNumber.value = '';
@@ -617,8 +707,19 @@ export function initPos() {
         } else if (els.customer) {
             els.customer.placeholder = 'Nama pelanggan (opsional)';
         }
+        syncVoucherBox(val);
         renderCart();
     }
+
+    els.btnApplyVoucher?.addEventListener('click', () => {
+        lookupVoucher(els.voucherCode?.value);
+    });
+    els.voucherCode?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            lookupVoucher(els.voucherCode.value);
+        }
+    });
 
     document.getElementById('btn-pay-exact')?.addEventListener('click', () => {
         setPaid(totals().total);
@@ -810,7 +911,7 @@ export function initPos() {
     });
 
     createBarcodeScanner({
-        onScan: (code) => {
+        onScan: async (code) => {
             if (settings.scanner_enabled === false) return;
             setDeviceBadge(els.scannerStatus, 'Scanner', true, 'aktif');
             const product = findByBarcode(code);
@@ -818,7 +919,13 @@ export function initPos() {
                 addProduct(product);
                 toast(`Ditambahkan: ${product.name}`);
             } else {
-                toast(`Barcode ${code} tidak ditemukan`);
+                const method = (window.jQuery && els.method ? jQuery(els.method).val() : els.method?.value) || 'cash';
+                const looksLikeVoucher = /^VCH/i.test(String(code || '')) || method === 'voucher';
+                if (looksLikeVoucher) {
+                    await lookupVoucher(code);
+                } else {
+                    toast(`Barcode ${code} tidak ditemukan`);
+                }
             }
             if (els.barcode) els.barcode.value = '';
             focusBarcodeInput();

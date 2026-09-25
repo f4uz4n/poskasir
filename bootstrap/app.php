@@ -12,6 +12,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->web(prepend: [
+            \App\Http\Middleware\RunPendingMigrations::class,
+        ]);
+        $middleware->api(prepend: [
+            \App\Http\Middleware\RunPendingMigrations::class,
+        ]);
+
         $middleware->alias([
             'subscribed' => \App\Http\Middleware\EnsureSubscribed::class,
             'feature' => \App\Http\Middleware\EnsureFeature::class,

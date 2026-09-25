@@ -43,6 +43,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Auto Migrate
+    |--------------------------------------------------------------------------
+    |
+    | Jika true, migrasi database pending dijalankan otomatis saat halaman
+    | web dibuka (berguna untuk instalasi XAMPP tanpa perintah artisan).
+    |
+    */
+
+    'auto_migrate' => (bool) env('AUTO_MIGRATE', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application URL
     |--------------------------------------------------------------------------
     |

@@ -101,7 +101,7 @@ XML;
             [$this->cell('Ringkasan Keuangan', 'Section'), $this->cell('')],
             [$this->cell('Metrik', 'Header'), $this->cell('Nilai', 'Header')],
             [$this->cell('Jumlah transaksi', 'Label'), $this->cellInt($summary['trx_count'])],
-            [$this->cell('Penjualan kotor', 'Label'), $this->cellMoney($summary['gross_sales'])],
+            [$this->cell('Harga jual (kotor)', 'Label'), $this->cellMoney($summary['gross_sales'])],
             [$this->cell('Diskon', 'Label'), $this->cellMoney($summary['discount'])],
             [$this->cell('Omzet setelah diskon', 'Label'), $this->cellMoney($summary['revenue'] ?? ($summary['gross_sales'] - $summary['discount']))],
             [$this->cell('Pajak', 'Label'), $this->cellMoney($summary['tax'])],
@@ -110,7 +110,7 @@ XML;
             [$this->cell('Laba kotor', 'Label'), $this->cellMoney($summary['gross_profit'])],
             [$this->cell('Margin (%)', 'Label'), $this->cellPercent($summary['margin'])],
             [$this->cell('Total qty terjual', 'Label'), $this->cellInt($summary['total_qty'])],
-            [$this->cell('Catatan', 'Label'), $this->cell('Hanya transaksi selesai; void tidak dihitung')],
+            [$this->cell('Catatan', 'Label'), $this->cell('Laba = (harga jual − diskon) − HPP; void tidak dihitung')],
             [$this->cell(''), $this->cell('')],
             [$this->cell('Tipe Order', 'Section'), $this->cell('')],
             [$this->cell('Dine In', 'Label'), $this->cellInt($summary['dine_in'])],
@@ -127,7 +127,9 @@ XML;
             $this->cell('Transaksi', 'Header'),
             $this->cell('Dine In', 'Header'),
             $this->cell('Take Away', 'Header'),
-            $this->cell('Penjualan', 'Header'),
+            $this->cell('Harga jual', 'Header'),
+            $this->cell('Diskon', 'Header'),
+            $this->cell('Omzet', 'Header'),
             $this->cell('HPP', 'Header'),
             $this->cell('Laba', 'Header'),
         ];
@@ -140,21 +142,20 @@ XML;
                 $this->cellInt($row->trx_count),
                 $this->cellInt($row->dine_in),
                 $this->cellInt($row->takeaway),
-                $this->cellMoney($row->sales),
+                $this->cellMoney($row->gross_sales),
+                $this->cellMoney($row->discount),
+                $this->cellMoney($row->revenue ?? ((float) $row->gross_sales - (float) $row->discount)),
                 $this->cellMoney($row->hpp),
                 $this->cellMoney($row->profit),
             ];
         }
 
         if (count($rows) === 1) {
-            $rows[] = [
-                $this->cell('Tidak ada data pada periode ini.'),
-                $this->cell(''), $this->cell(''), $this->cell(''),
-                $this->cell(''), $this->cell(''), $this->cell(''),
-            ];
+            $rows[] = array_fill(0, 9, $this->cell(''));
+            $rows[1][0] = $this->cell('Tidak ada data pada periode ini.');
         }
 
-        return $this->worksheet('Penjualan Harian', $rows, [90, 70, 60, 70, 90, 90, 90]);
+        return $this->worksheet('Penjualan Harian', $rows, [90, 70, 60, 70, 90, 80, 90, 90, 90]);
     }
 
     private function sheetProduk(): string
@@ -163,7 +164,9 @@ XML;
             $this->cell('No', 'Header'),
             $this->cell('Produk', 'Header'),
             $this->cell('Qty', 'Header'),
-            $this->cell('Penjualan', 'Header'),
+            $this->cell('Harga jual', 'Header'),
+            $this->cell('Diskon', 'Header'),
+            $this->cell('Net', 'Header'),
             $this->cell('HPP', 'Header'),
             $this->cell('Laba', 'Header'),
         ];
@@ -176,6 +179,8 @@ XML;
                 $this->cellInt($no++),
                 $this->cell($p->product_name),
                 $this->cellInt($p->qty),
+                $this->cellMoney($p->sales),
+                $this->cellMoney($p->discount ?? 0),
                 $this->cellMoney($p->revenue ?? $p->sales),
                 $this->cellMoney($p->hpp),
                 $this->cellMoney($p->profit),
@@ -183,13 +188,11 @@ XML;
         }
 
         if (count($rows) === 1) {
-            $rows[] = [
-                $this->cell(''), $this->cell('Belum ada penjualan produk.'),
-                $this->cell(''), $this->cell(''), $this->cell(''), $this->cell(''),
-            ];
+            $rows[] = array_fill(0, 8, $this->cell(''));
+            $rows[1][1] = $this->cell('Belum ada penjualan produk.');
         }
 
-        return $this->worksheet('Produk Terlaris', $rows, [40, 200, 50, 90, 90, 90]);
+        return $this->worksheet('Produk Terlaris', $rows, [40, 200, 50, 90, 80, 90, 90, 90]);
     }
 
     private function sheetPembayaran(): string
@@ -229,10 +232,13 @@ XML;
             $this->cell('Tipe', 'Header'),
             $this->cell('Metode', 'Header'),
             $this->cell('Pelanggan', 'Header'),
-            $this->cell('Subtotal', 'Header'),
+            $this->cell('Harga jual', 'Header'),
             $this->cell('Diskon', 'Header'),
+            $this->cell('Omzet', 'Header'),
             $this->cell('Pajak', 'Header'),
-            $this->cell('Total', 'Header'),
+            $this->cell('Total bayar', 'Header'),
+            $this->cell('HPP', 'Header'),
+            $this->cell('Laba', 'Header'),
             $this->cell('Bayar', 'Header'),
             $this->cell('Kembali', 'Header'),
             $this->cell('Status', 'Header'),
@@ -242,6 +248,12 @@ XML;
         $no = 1;
 
         foreach ($this->payload['allTransactions'] as $trx) {
+            $gross = $trx->gross_sales ?? $trx->subtotal;
+            $disc = $trx->discount_amount ?? $trx->discount;
+            $revenue = $trx->revenue ?? ((float) $gross - (float) $disc);
+            $hpp = $trx->hpp ?? 0;
+            $profit = $trx->profit ?? ((float) $revenue - (float) $hpp);
+
             $rows[] = [
                 $this->cellInt($no++),
                 $this->cell($trx->invoice_number),
@@ -249,10 +261,13 @@ XML;
                 $this->cell($this->orderTypeLabel($trx->order_type)),
                 $this->cell($this->paymentLabel($trx->payment_method)),
                 $this->cell($trx->customer_name ?: '-'),
-                $this->cellMoney($trx->subtotal),
-                $this->cellMoney($trx->discount),
+                $this->cellMoney($gross),
+                $this->cellMoney($disc),
+                $this->cellMoney($revenue),
                 $this->cellMoney($trx->tax),
                 $this->cellMoney($trx->total),
+                $this->cellMoney($hpp),
+                $this->cellMoney($profit),
                 $this->cellMoney($trx->paid),
                 $this->cellMoney($trx->change),
                 $this->cell($this->statusLabel($trx->status)),
@@ -260,11 +275,11 @@ XML;
         }
 
         if (count($rows) === 1) {
-            $rows[] = array_fill(0, 13, $this->cell(''));
+            $rows[] = array_fill(0, 16, $this->cell(''));
             $rows[1][1] = $this->cell('Tidak ada transaksi pada periode ini.');
         }
 
-        return $this->worksheet('Detail Transaksi', $rows, [35, 110, 110, 70, 80, 120, 80, 70, 70, 80, 80, 70, 70]);
+        return $this->worksheet('Detail Transaksi', $rows, [35, 110, 110, 70, 80, 120, 90, 80, 90, 70, 90, 80, 80, 80, 70, 70]);
     }
 
     /** @param array<int, array<int, string>> $rows */
@@ -343,6 +358,7 @@ XML;
             'transfer' => 'Transfer',
             'card' => 'Kartu',
             'credit' => 'Piutang',
+            'voucher' => 'Voucher',
             'other' => 'Lainnya',
             default => strtoupper((string) $method),
         };

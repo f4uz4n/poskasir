@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\Receivable;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Models\Voucher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use InvalidArgumentException;
@@ -64,6 +65,16 @@ class TransactionVoidService
                         'notes' => trim(($receivable->notes ? $receivable->notes.' · ' : '').'Dibatalkan karena void transaksi'),
                     ]);
                 });
+
+            if ($transaction->voucher_id) {
+                Voucher::where('id', $transaction->voucher_id)
+                    ->where('status', 'used')
+                    ->update([
+                        'status' => 'active',
+                        'used_at' => null,
+                        'used_on_transaction_id' => null,
+                    ]);
+            }
         });
     }
 }

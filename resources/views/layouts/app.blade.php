@@ -57,6 +57,52 @@
                 padding-left: 5rem;
             }
         }
+
+        .pagination-nav { width: 100%; }
+        .pagination-meta { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: #64748b; }
+        .pagination-meta strong { color: #0f172a; font-weight: 700; }
+        .pagination-list {
+            display: inline-flex; align-items: center; gap: 0.25rem; list-style: none;
+            margin: 0; padding: 0.25rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.85rem;
+        }
+        .pagination-page {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 2.1rem; height: 2.1rem; padding: 0 0.55rem; border-radius: 0.65rem;
+            font-size: 0.8125rem; font-weight: 600; color: #475569; text-decoration: none !important;
+            transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .pagination-page:hover { background: #fff; color: #047857; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); }
+        .pagination-page-active { background: #059669; color: #fff !important; box-shadow: 0 2px 6px rgba(5, 150, 105, 0.28); }
+        .pagination-page-active:hover { background: #047857; color: #fff !important; }
+        .pagination-page-disabled { color: #94a3b8; cursor: not-allowed; opacity: 0.65; }
+        .pagination-page-disabled:hover { background: transparent; color: #94a3b8; box-shadow: none; }
+        .pagination-ellipsis {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 1.6rem; height: 2.1rem; color: #94a3b8; font-weight: 600;
+        }
+        .pagination-chevron { width: 1rem; height: 1rem; }
+        .pagination-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 0.5rem 0.85rem; border-radius: 0.75rem; font-size: 0.8125rem; font-weight: 600;
+            color: #0f172a !important; background: #fff; border: 1px solid #e2e8f0; text-decoration: none !important;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        .pagination-btn:hover { border-color: #cbd5e1; background: #f8fafc; color: #047857 !important; }
+        .pagination-btn-disabled { color: #94a3b8 !important; background: #f8fafc; cursor: not-allowed; opacity: 0.7; }
+        .pagination-btn-disabled:hover { border-color: #e2e8f0; background: #f8fafc; color: #94a3b8 !important; }
+
+        .nav-dropdown-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+            padding: 0.2rem 0 0.4rem 1.15rem;
+            margin-left: 0.85rem;
+            border-left: 2px solid rgba(5, 150, 105, 0.18);
+        }
+        .nav-dropdown-menu .sidebar-link {
+            padding-left: 0.85rem;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 <body class="bg-app antialiased">
@@ -162,6 +208,7 @@
                 transactionsRecent: @json(auth()->check() ? route('transactions.recent') : null),
                 transactionsVoidStore: @json(auth()->check() ? route('transactions.void.store') : null),
                 transactionsVoidPage: @json(auth()->check() ? route('transactions.void.create') : null),
+                vouchersLookup: @json(auth()->check() && Route::has('vouchers.lookup') ? route('vouchers.lookup') : null),
                 printerDevices: @json(auth()->check() ? route('printer.devices') : null),
                 printerRaw: @json(auth()->check() ? route('printer.raw') : null),
                 settingsPrinter: @json(auth()->check() && Route::has('settings.printer') ? route('settings.printer') : null),

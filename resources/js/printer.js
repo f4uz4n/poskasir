@@ -239,6 +239,7 @@ function paymentLabel(method = '') {
     if (m === 'transfer') return 'Transfer';
     if (m === 'card') return 'Kartu';
     if (m === 'credit') return 'Piutang';
+    if (m === 'voucher') return 'Voucher';
     if (m === 'other') return 'Lainnya';
     return method || '-';
 }

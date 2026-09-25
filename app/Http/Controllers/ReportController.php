@@ -25,7 +25,18 @@ class ReportController extends Controller
             ->with('items')
             ->latest('sold_at')
             ->paginate(20)
+            ->onEachSide(1)
             ->withQueryString();
+
+        $transactions->getCollection()->transform(function ($trx) {
+            $trx->hpp = (float) $trx->items->sum(fn ($item) => (float) $item->cost * (int) $item->qty);
+            $trx->gross_sales = (float) $trx->subtotal;
+            $trx->discount_amount = (float) $trx->discount;
+            $trx->revenue = round($trx->gross_sales - $trx->discount_amount, 2);
+            $trx->profit = round($trx->revenue - $trx->hpp, 2);
+
+            return $trx;
+        });
 
         return view('reports.index', [
             ...$payload,
@@ -125,7 +136,9 @@ class ReportController extends Controller
             $hppRow = $dailyHpp->get($key);
             $row->hpp = (float) ($hppRow->hpp ?? 0);
             $row->qty = (int) ($hppRow->qty ?? 0);
-            $revenue = (float) $row->gross_sales - (float) $row->discount;
+            $row->gross_sales = (float) $row->gross_sales;
+            $row->discount = (float) $row->discount;
+            $revenue = $row->gross_sales - $row->discount;
             $row->revenue = round($revenue, 2);
             $row->profit = round($revenue - (float) $row->hpp, 2);
 
@@ -134,6 +147,8 @@ class ReportController extends Controller
 
         $dailyTotals = [
             'trx_count' => (int) $daily->sum('trx_count'),
+            'gross_sales' => (float) $daily->sum('gross_sales'),
+            'discount' => (float) $daily->sum('discount'),
             'sales' => (float) $daily->sum('sales'),
             'revenue' => (float) $daily->sum('revenue'),
             'hpp' => (float) $daily->sum('hpp'),
@@ -155,10 +170,11 @@ class ReportController extends Controller
             ->map(function ($p) use ($summary) {
                 $itemSales = (float) $p->sales;
                 $share = $summary['item_sales'] > 0 ? ($itemSales / $summary['item_sales']) : 0;
-                $allocatedDiscount = $summary['discount'] * $share;
+                $allocatedDiscount = round($summary['discount'] * $share, 2);
                 $revenue = round($itemSales - $allocatedDiscount, 2);
                 $hpp = (float) $p->hpp;
                 $p->sales = $itemSales;
+                $p->discount = $allocatedDiscount;
                 $p->revenue = $revenue;
                 $p->hpp = $hpp;
                 $p->profit = round($revenue - $hpp, 2);
@@ -172,13 +188,27 @@ class ReportController extends Controller
             ->get();
 
         $allTransactions = (clone $baseQuery)
+            ->with('items')
             ->latest('sold_at')
-            ->get();
+            ->get()
+            ->map(function ($trx) {
+                $trx->hpp = (float) $trx->items->sum(fn ($item) => (float) $item->cost * (int) $item->qty);
+                $trx->gross_sales = (float) $trx->subtotal;
+                $trx->discount_amount = (float) $trx->discount;
+                $trx->revenue = round($trx->gross_sales - $trx->discount_amount, 2);
+                $trx->profit = round($trx->revenue - $trx->hpp, 2);
+
+                return $trx;
+            });
 
         $detailTotals = [
             'trx_count' => $allTransactions->count(),
+            'gross_sales' => (float) $allTransactions->sum('gross_sales'),
+            'discount' => (float) $allTransactions->sum('discount_amount'),
             'sales' => (float) $allTransactions->sum('total'),
-            'revenue' => round((float) $allTransactions->sum('subtotal') - (float) $allTransactions->sum('discount'), 2),
+            'revenue' => (float) $allTransactions->sum('revenue'),
+            'hpp' => (float) $allTransactions->sum('hpp'),
+            'profit' => (float) $allTransactions->sum('profit'),
         ];
 
         return compact(

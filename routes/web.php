@@ -21,6 +21,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProfitLossController;
 use App\Http\Controllers\PurchaseController;
+use App\Http\Controllers\PurchaseRecommendationController;
 use App\Http\Controllers\ReceivableController;
 use App\Http\Controllers\RemoteMonitorController;
 use App\Http\Controllers\ReportController;
@@ -31,6 +32,7 @@ use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\TransactionVoidController;
+use App\Http\Controllers\VoucherController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -102,6 +104,7 @@ Route::middleware('auth')->group(function () {
 
         Route::middleware('staff.area:pos')->group(function () {
             Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
+            Route::get('/vouchers/lookup', [VoucherController::class, 'lookup'])->name('vouchers.lookup');
             Route::get('/printer/capabilities', [PrinterController::class, 'capabilities'])->name('printer.capabilities');
             Route::get('/printer/devices', [PrinterController::class, 'devices'])->name('printer.devices');
             Route::post('/printer/raw', [PrinterController::class, 'printRaw'])->name('printer.raw');
@@ -120,6 +123,11 @@ Route::middleware('auth')->group(function () {
             Route::get('/price-tags', [PriceTagController::class, 'index'])->name('price-tags.index');
             Route::post('/price-tags/print', [PriceTagController::class, 'print'])->name('price-tags.print');
             Route::post('/price-tags/pdf', [PriceTagController::class, 'pdf'])->name('price-tags.pdf');
+
+            Route::get('/vouchers', [VoucherController::class, 'index'])->name('vouchers.index');
+            Route::post('/vouchers', [VoucherController::class, 'store'])->name('vouchers.store');
+            Route::get('/vouchers/print', [VoucherController::class, 'print'])->name('vouchers.print');
+            Route::post('/vouchers/{voucher}/cancel', [VoucherController::class, 'cancel'])->name('vouchers.cancel');
 
             Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
             Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
@@ -164,6 +172,14 @@ Route::middleware('auth')->group(function () {
             Route::get('/reports/export/excel', [ReportController::class, 'exportExcel'])->name('reports.export.excel');
             Route::get('/reports/export/pdf', [ReportController::class, 'exportPdf'])->name('reports.export.pdf');
             Route::get('/reports/profit-loss', [ProfitLossController::class, 'index'])->name('reports.profit-loss');
+            Route::get('/reports/product-sales', [PurchaseRecommendationController::class, 'index'])->name('reports.product-sales');
+            Route::get('/reports/product-sales/export/excel', [PurchaseRecommendationController::class, 'exportExcel'])->name('reports.product-sales.export.excel');
+            Route::get('/reports/product-sales/export/pdf', [PurchaseRecommendationController::class, 'exportPdf'])->name('reports.product-sales.export.pdf');
+
+            // Alias lama
+            Route::redirect('/reports/recommendations', '/reports/product-sales');
+            Route::get('/reports/recommendations/export/excel', [PurchaseRecommendationController::class, 'exportExcel']);
+            Route::get('/reports/recommendations/export/pdf', [PurchaseRecommendationController::class, 'exportPdf']);
         });
 
         Route::middleware('staff.area:settings')->group(function () {

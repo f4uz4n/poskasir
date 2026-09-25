@@ -158,6 +158,7 @@ class StockReportController extends Controller
             })
             ->orderBy('name')
             ->paginate(25)
+            ->onEachSide(1)
             ->withQueryString();
 
         $categories = Category::where('user_id', $ownerId)->orderBy('name')->get();

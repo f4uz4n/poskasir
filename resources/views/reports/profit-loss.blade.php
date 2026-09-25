@@ -5,6 +5,8 @@
 @section('subheading', 'Penjualan selesai − HPP; pembelian supplier ditampilkan terpisah (bukan mengurangi laba yang sudah memakai HPP)')
 
 @section('content')
+@include('reports._tabs', ['activeTab' => 'profit-loss'])
+
 <form method="GET" class="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
     <div>
         <label class="text-xs text-slate-500">Dari</label>

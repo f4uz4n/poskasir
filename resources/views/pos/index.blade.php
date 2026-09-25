@@ -109,12 +109,18 @@
                             <option value="qris">QRIS</option>
                             <option value="transfer">Transfer</option>
                             <option value="card">Kartu</option>
+                            <option value="voucher">Voucher</option>
                             <option value="credit">Piutang</option>
                         </select>
                         <div class="relative">
                             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
                             <input id="paid-amount" type="text" inputmode="numeric" class="input pl-8 py-2 text-sm text-right font-semibold" placeholder="0">
                         </div>
+                    </div>
+                    <div id="voucher-pay-box" class="hidden space-y-1.5">
+                        <input id="voucher-code" type="text" class="input py-2 text-sm font-mono uppercase" placeholder="Scan / ketik kode voucher" autocomplete="off" inputmode="none" data-no-keyboard>
+                        <div id="voucher-info" class="text-xs text-slate-500 hidden"></div>
+                        <button type="button" id="btn-apply-voucher" class="btn btn-secondary w-full text-xs py-1.5">Terapkan voucher</button>
                     </div>
                     <div class="pos-quick-pay flex flex-wrap gap-1.5">
                         <button type="button" id="btn-pay-exact" class="btn btn-ghost text-xs py-1 px-2">Uang pas</button>

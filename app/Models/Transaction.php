@@ -23,6 +23,9 @@ class Transaction extends Model
         'paid',
         'change',
         'payment_method',
+        'voucher_id',
+        'voucher_code',
+        'voucher_amount',
         'status',
         'voided_by',
         'voided_at',
@@ -41,6 +44,7 @@ class Transaction extends Model
             'total' => 'decimal:2',
             'paid' => 'decimal:2',
             'change' => 'decimal:2',
+            'voucher_amount' => 'decimal:2',
             'is_synced' => 'boolean',
             'sold_at' => 'datetime',
             'voided_at' => 'datetime',
@@ -60,6 +64,11 @@ class Transaction extends Model
     public function voidedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'voided_by');
+    }
+
+    public function voucher(): BelongsTo
+    {
+        return $this->belongsTo(Voucher::class);
     }
 
     public function items(): HasMany

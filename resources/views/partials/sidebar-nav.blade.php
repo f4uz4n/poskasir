@@ -88,7 +88,7 @@ $openIf = function (bool $active) {
 @endif
 
 @if($user->canAccessArea('inventory'))
-<details class="nav-dropdown {{ $openIf(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) }}" data-nav-group="inventori" @if(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock'])) open @endif>
+<details class="nav-dropdown {{ $openIf(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock','vouchers.*'])) }}" data-nav-group="inventori" @if(request()->routeIs(['products.*','purchases.*','suppliers.*','price-tags.*','stock-opname.*','expiry.*','reports.stock','vouchers.*'])) open @endif>
     <summary class="nav-dropdown-toggle" title="Inventori">
         <span class="nav-toggle-left">
             {!! $icon('products') !!}
@@ -108,6 +108,9 @@ $openIf = function (bool $active) {
         </a>
         <a href="{{ route('price-tags.index') }}" class="sidebar-link {{ request()->routeIs('price-tags.*') ? 'active' : '' }}" title="Label Harga">
             {!! $icon('tag') !!}<span class="nav-label">Label Harga</span>
+        </a>
+        <a href="{{ route('vouchers.index') }}" class="sidebar-link {{ request()->routeIs('vouchers.*') ? 'active' : '' }}" title="Voucher">
+            {!! $icon('tag') !!}<span class="nav-label">Voucher</span>
         </a>
         <a href="{{ route('stock-opname.index') }}" class="sidebar-link {{ request()->routeIs('stock-opname.*') ? 'active' : '' }}" title="Stock Opname">
             {!! $icon('opname') !!}<span class="nav-label">Stock Opname</span>
@@ -153,23 +156,12 @@ $openIf = function (bool $active) {
 @endif
 
 @if($user->canAccessArea('reports'))
-<details class="nav-dropdown {{ $openIf(request()->routeIs('reports.index') || request()->routeIs('reports.profit-loss')) }}" data-nav-group="laporan" @if(request()->routeIs('reports.index') || request()->routeIs('reports.profit-loss')) open @endif>
-    <summary class="nav-dropdown-toggle" title="Laporan">
-        <span class="nav-toggle-left">
-            {!! $icon('reports') !!}
-            <span class="nav-label">Laporan</span>
-        </span>
-        {!! $icon('chevron') !!}
-    </summary>
-    <div class="nav-dropdown-menu">
-        <a href="{{ route('reports.index') }}" class="sidebar-link {{ request()->routeIs('reports.index') ? 'active' : '' }}" title="Penjualan & HPP">
-            {!! $icon('reports') !!}<span class="nav-label">Penjualan & HPP</span>
-        </a>
-        <a href="{{ route('reports.profit-loss') }}" class="sidebar-link {{ request()->routeIs('reports.profit-loss') ? 'active' : '' }}" title="Laba Rugi">
-            {!! $icon('pl') !!}<span class="nav-label">Laba / Rugi</span>
-        </a>
-    </div>
-</details>
+@php $isLaporan = request()->routeIs(['reports.index', 'reports.profit-loss', 'reports.product-sales*']); @endphp
+<a href="{{ route('reports.index') }}"
+   class="sidebar-link {{ $isLaporan ? 'active' : '' }}"
+   title="Laporan">
+    {!! $icon('reports') !!}<span class="nav-label">Laporan</span>
+</a>
 @endif
 
 @if($user->isStoreOwner() || $user->canAccessArea('staff') || $user->canAccessArea('settings'))
