@@ -74,7 +74,36 @@
                             @endif
                         </td>
                         <td class="py-3 pr-3">{{ $trx->items->sum('qty') }} item</td>
-                        <td class="py-3 pr-3 uppercase">{{ $trx->payment_method }}</td>
+                        <td class="py-3 pr-3">
+                            @php
+                                $payRows = $trx->payments ?? collect();
+                                $methodLabels = [
+                                    'cash' => 'Tunai',
+                                    'qris' => 'QRIS',
+                                    'transfer' => 'Transfer',
+                                    'card' => 'Kartu',
+                                    'credit' => 'Piutang',
+                                    'voucher' => 'Voucher',
+                                    'mixed' => 'Campuran',
+                                    'other' => 'Lainnya',
+                                ];
+                            @endphp
+                            @if($payRows->isNotEmpty())
+                                <div class="space-y-0.5">
+                                    @foreach($payRows as $pay)
+                                        <div class="text-xs">
+                                            <span class="font-medium">{{ $pay->method === 'voucher' && $pay->voucher_code ? 'Voucher '.$pay->voucher_code : ($methodLabels[$pay->method] ?? strtoupper($pay->method)) }}</span>
+                                            <span class="text-slate-500">Rp {{ number_format($pay->amount, 0, ',', '.') }}</span>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @else
+                                <span class="text-xs font-medium">{{ $methodLabels[$trx->payment_method] ?? strtoupper($trx->payment_method) }}</span>
+                                @if($trx->voucher_code)
+                                    <div class="text-[10px] text-slate-400">{{ $trx->voucher_code }}@if($trx->voucher_amount) · Rp {{ number_format($trx->voucher_amount, 0, ',', '.') }}@endif</div>
+                                @endif
+                            @endif
+                        </td>
                         <td class="py-3 pr-3">
                             <span class="px-2 py-1 rounded-full text-xs {{ $trx->status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700' }}">
                                 {{ $trx->status }}

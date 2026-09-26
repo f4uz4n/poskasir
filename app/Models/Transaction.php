@@ -71,6 +71,11 @@ class Transaction extends Model
         return $this->belongsTo(Voucher::class);
     }
 
+    public function payments(): HasMany
+    {
+        return $this->hasMany(TransactionPayment::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(TransactionItem::class);

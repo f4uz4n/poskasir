@@ -3,6 +3,9 @@ import printer from './printer';
 import { createBarcodeScanner } from './scanner';
 import {
     paymentMethodLabel,
+    paymentMethodsSummary,
+    normalizePaymentRows,
+    paymentRowLabel,
     bindTransactionDetailModal,
 } from './transaction-detail';
 
@@ -87,17 +90,21 @@ export function initPos() {
         total: document.getElementById('cart-total'),
         discount: document.getElementById('cart-discount'),
         taxLabel: document.getElementById('tax-label'),
-        paid: document.getElementById('paid-amount'),
+        paid: null,
         change: document.getElementById('change-amount'),
         search: document.getElementById('product-search'),
         category: document.getElementById('category-filter'),
         barcode: document.getElementById('barcode-input'),
         customer: document.getElementById('customer-name'),
-        method: document.getElementById('payment-method'),
+        method: null,
         voucherBox: document.getElementById('voucher-pay-box'),
         voucherCode: document.getElementById('voucher-code'),
         voucherInfo: document.getElementById('voucher-info'),
         btnApplyVoucher: document.getElementById('btn-apply-voucher'),
+        btnClearVoucher: document.getElementById('btn-clear-voucher'),
+        payLinesEl: document.getElementById('payment-lines'),
+        btnAddPayment: document.getElementById('btn-add-payment'),
+        payRemaining: document.getElementById('pay-remaining'),
         tableNumber: document.getElementById('table-number'),
         tableWrap: document.getElementById('table-number-wrap'),
         printerStatus: document.getElementById('printer-status'),
@@ -108,6 +115,30 @@ export function initPos() {
     };
 
     let appliedVoucher = null;
+    let paymentLines = [];
+    let activePayKey = null;
+    let payLineSeq = 1;
+
+    const PAY_METHOD_LABELS = {
+        cash: 'Tunai',
+        qris: 'QRIS',
+        transfer: 'Transfer',
+        card: 'Kartu',
+        voucher: 'Voucher',
+        credit: 'Piutang',
+    };
+
+    function nextPayKey() {
+        return 'pay_' + (payLineSeq++);
+    }
+
+    function resetPaymentLines(defaultMethod = 'cash') {
+        paymentLines = [{ key: nextPayKey(), method: defaultMethod, amount: 0 }];
+        activePayKey = paymentLines[0].key;
+        clearVoucher(true);
+        syncPayUI();
+        renderPaymentLines();
+    }
 
     els.taxLabel.textContent = settings.tax_percent || 0;
     if (els.discount) els.discount.value = '0';
@@ -322,6 +353,26 @@ export function initPos() {
         }
     }
 
+    function voucherAppliedAmount(total) {
+        if (!appliedVoucher) return 0;
+        return Math.min(Number(appliedVoucher.amount || 0), Math.max(0, total));
+    }
+
+    function hasPayMethod(method) {
+        return paymentLines.some((l) => l.method === method);
+    }
+
+    function getActiveLine() {
+        return paymentLines.find((l) => l.key === activePayKey) || paymentLines[paymentLines.length - 1] || null;
+    }
+
+    function lineAmount(line, total) {
+        if (!line) return 0;
+        if (line.method === 'voucher') return voucherAppliedAmount(total);
+        if (line.method === 'credit') return 0; // dihitung di totals dari sisa
+        return Math.max(0, Number(line.amount) || 0);
+    }
+
     function totals() {
         const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
         const discount = parseRupiah(els.discount?.value);
@@ -329,9 +380,246 @@ export function initPos() {
         const taxable = Math.max(0, subtotal - discount);
         const tax = Math.round(taxable * (taxPercent / 100));
         const total = taxable + tax;
-        const paid = parseRupiah(els.paid?.value);
-        const change = Math.max(0, paid - total);
-        return { subtotal, discount, tax, total, paid, change };
+
+        let voucherAmount = 0;
+        let tendered = 0;
+        let hasCredit = false;
+
+        paymentLines.forEach((line) => {
+            if (line.method === 'voucher') {
+                voucherAmount = voucherAppliedAmount(total);
+            } else if (line.method === 'credit') {
+                hasCredit = true;
+            } else {
+                tendered += Math.max(0, Number(line.amount) || 0);
+            }
+        });
+
+        const covered = voucherAmount + tendered;
+        const remainingBeforeCredit = Math.max(0, total - covered);
+        const creditAmount = hasCredit ? remainingBeforeCredit : 0;
+        const remaining = hasCredit ? 0 : remainingBeforeCredit;
+        const paid = voucherAmount + tendered + creditAmount;
+        const change = hasCredit ? 0 : Math.max(0, voucherAmount + tendered - total);
+        const methods = paymentLines.map((l) => l.method);
+        const unique = [...new Set(methods)];
+        const method = unique.length > 1 ? 'mixed' : (unique[0] || 'cash');
+
+        return {
+            subtotal,
+            discount,
+            tax,
+            total,
+            voucherAmount,
+            tendered,
+            creditAmount,
+            remaining,
+            remainingBeforeCredit,
+            hasCredit,
+            paid,
+            change,
+            method,
+            hasVoucher: hasPayMethod('voucher'),
+            isVoucherMode: hasPayMethod('voucher'),
+            settleMethod: method,
+        };
+    }
+
+    function syncPayUI() {
+        const showVoucher = hasPayMethod('voucher');
+        if (els.voucherBox) {
+            els.voucherBox.classList.toggle('hidden', !showVoucher);
+            // pastikan tidak tertutup class lain
+            if (showVoucher) els.voucherBox.style.display = '';
+            else els.voucherBox.style.display = '';
+        }
+    }
+
+    function methodOptionsHtml(selected) {
+        return ['cash', 'qris', 'transfer', 'card', 'voucher', 'credit'].map((m) => {
+            const sel = m === selected ? ' selected' : '';
+            return `<option value="${m}"${sel}>${PAY_METHOD_LABELS[m]}</option>`;
+        }).join('');
+    }
+
+    function focusVoucherField() {
+        setTimeout(() => {
+            els.voucherCode?.focus();
+            try { els.voucherCode?.select?.(); } catch (_) {}
+        }, 50);
+    }
+
+    function renderPaymentLines() {
+        if (!els.payLinesEl) return;
+        const t = totals();
+        if (!paymentLines.length) {
+            els.payLinesEl.innerHTML = '';
+            syncPayUI();
+            return;
+        }
+
+        const canRemove = paymentLines.length > 1;
+        els.payLinesEl.innerHTML = paymentLines.map((line) => {
+            const isActive = line.key === activePayKey;
+            const isVoucher = line.method === 'voucher';
+            const isCredit = line.method === 'credit';
+            let amountVal = line.amount;
+            if (isVoucher) amountVal = t.voucherAmount;
+            if (isCredit) amountVal = t.creditAmount;
+            const amountHtml = (isVoucher || isCredit)
+                ? `<div class="pos-pay-line-amount-ro" data-pay-ro="${line.key}">${formatMoney(amountVal)}</div>`
+                : `<div class="relative min-w-0">
+                    <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">Rp</span>
+                    <input type="text" inputmode="numeric" class="input pos-pay-line-amount pl-8" data-pay-amount="${line.key}" value="${formatRupiahInput(amountVal)}" placeholder="0">
+                   </div>`;
+
+            return `
+                <div class="pos-pay-line ${isActive ? 'is-active' : ''}" data-pay-key="${line.key}">
+                    <select class="input pos-pay-line-method" data-pay-method="${line.key}" data-no-select2>
+                        ${methodOptionsHtml(line.method)}
+                    </select>
+                    ${amountHtml}
+                    <button type="button" class="pos-pay-line-remove" data-pay-remove="${line.key}" title="Hapus" aria-label="Hapus" ${canRemove ? '' : 'disabled'}>×</button>
+                </div>
+            `;
+        }).join('');
+        syncPayUI();
+    }
+
+    function addPaymentLine(preferredMethod = 'cash') {
+        const rem = totals().remaining;
+        // Prefer metode yang belum dipakai
+        const used = new Set(paymentLines.map((l) => l.method));
+        const candidates = ['cash', 'qris', 'transfer', 'card', 'voucher', 'credit'];
+        let method = preferredMethod;
+        if (used.has(method)) {
+            method = candidates.find((m) => !used.has(m)) || 'cash';
+        }
+        const line = {
+            key: nextPayKey(),
+            method,
+            amount: (method === 'voucher' || method === 'credit') ? 0 : Math.max(0, rem),
+        };
+        paymentLines.push(line);
+        activePayKey = line.key;
+
+        if (method === 'credit' && els.customer) {
+            els.customer.placeholder = 'Nama pelanggan (wajib untuk piutang)';
+        }
+
+        renderPaymentLines();
+        renderCart();
+
+        if (method === 'voucher') {
+            focusVoucherField();
+        } else if (method !== 'credit') {
+            setTimeout(() => {
+                els.payLinesEl?.querySelector(`[data-pay-amount="${line.key}"]`)?.focus();
+            }, 40);
+        }
+        return line;
+    }
+
+    function changePaymentMethod(key, method) {
+        const line = paymentLines.find((l) => l.key === key);
+        if (!line) return;
+        const prev = line.method;
+
+        // Satu baris voucher saja
+        if (method === 'voucher') {
+            paymentLines.forEach((l) => {
+                if (l.key !== key && l.method === 'voucher') {
+                    l.method = 'cash';
+                    if (!l.amount) l.amount = 0;
+                }
+            });
+        }
+
+        line.method = method;
+        activePayKey = key;
+
+        if (prev === 'voucher' && method !== 'voucher') {
+            clearVoucher(true);
+        }
+
+        if (method === 'voucher' || method === 'credit') {
+            line.amount = 0;
+        } else if (prev === 'voucher' || prev === 'credit' || !line.amount) {
+            line.amount = Math.max(0, totals().remaining);
+        }
+
+        if (method === 'credit' && els.customer) {
+            els.customer.placeholder = 'Nama pelanggan (wajib untuk piutang)';
+        } else if (els.customer && !hasPayMethod('credit')) {
+            els.customer.placeholder = 'Nama pelanggan (opsional)';
+        }
+
+        renderPaymentLines();
+        renderCart();
+        if (method === 'voucher') {
+            // tampilkan dulu box-nya lalu fokus scan
+            syncPayUI();
+            focusVoucherField();
+        }
+    }
+
+    function addOrFocusPaymentMethod(method) {
+        let line = paymentLines.find((l) => l.method === method);
+        if (!line) {
+            line = addPaymentLine(method);
+            // addPaymentLine may pick another method if preferred taken — force
+            if (line.method !== method) {
+                changePaymentMethod(line.key, method);
+                line = paymentLines.find((l) => l.key === line.key);
+            }
+            return;
+        }
+        activePayKey = line.key;
+        renderPaymentLines();
+        renderCart();
+        if (method === 'voucher') focusVoucherField();
+    }
+
+    function removePaymentLine(key) {
+        const line = paymentLines.find((l) => l.key === key);
+        if (!line) return;
+        if (line.method === 'voucher') clearVoucher(true);
+        paymentLines = paymentLines.filter((l) => l.key !== key);
+        if (!paymentLines.length) {
+            paymentLines = [{ key: nextPayKey(), method: 'cash', amount: 0 }];
+        }
+        if (!paymentLines.some((l) => l.key === activePayKey)) {
+            activePayKey = paymentLines[paymentLines.length - 1].key;
+        }
+        if (els.customer && !hasPayMethod('credit')) {
+            els.customer.placeholder = 'Nama pelanggan (opsional)';
+        }
+        renderPaymentLines();
+        renderCart();
+    }
+
+    function setLineAmount(key, amount) {
+        const line = paymentLines.find((l) => l.key === key);
+        if (!line || line.method === 'voucher' || line.method === 'credit') return;
+        line.amount = Math.max(0, Math.floor(Number(amount) || 0));
+        activePayKey = key;
+        renderCart();
+    }
+
+    function setPaid(amount) {
+        let line = getActiveLine();
+        if (!line || line.method === 'voucher' || line.method === 'credit') {
+            line = paymentLines.find((l) => l.method !== 'voucher' && l.method !== 'credit');
+        }
+        if (!line) {
+            addOrFocusPaymentMethod('cash');
+            line = getActiveLine();
+        }
+        if (!line) return;
+        line.amount = Math.max(0, Math.floor(Number(amount) || 0));
+        activePayKey = line.key;
+        renderPaymentLines();
+        renderCart();
     }
 
     function renderCart() {
@@ -369,6 +657,13 @@ export function initPos() {
         els.tax.textContent = formatMoney(t.tax);
         els.total.textContent = formatMoney(t.total);
         els.change.textContent = formatMoney(t.change);
+        if (els.payRemaining) {
+            els.payRemaining.textContent = formatMoney(t.remaining);
+            els.payRemaining.classList.toggle('text-emerald-700', t.remaining <= 0);
+            els.payRemaining.classList.toggle('text-amber-700', t.remaining > 0);
+        }
+        if (els.btnClearVoucher) els.btnClearVoucher.classList.toggle('hidden', !appliedVoucher);
+        syncPayUI();
     }
 
     function setProductViewMode(mode) {
@@ -467,12 +762,6 @@ export function initPos() {
         return products.find((p) => String(p.barcode) === String(code) || String(p.sku) === String(code));
     }
 
-    function setPaid(amount) {
-        if (!els.paid) return;
-        els.paid.value = formatRupiahInput(amount);
-        renderCart();
-    }
-
     function clearVoucher(silent = false) {
         appliedVoucher = null;
         if (els.voucherCode) els.voucherCode.value = '';
@@ -480,7 +769,19 @@ export function initPos() {
             els.voucherInfo.classList.add('hidden');
             els.voucherInfo.textContent = '';
         }
-        if (!silent) renderCart();
+        if (els.btnClearVoucher) els.btnClearVoucher.classList.add('hidden');
+        // Lepas baris voucher dari multi-bayar (kecuali sedang reset penuh)
+        if (!silent) {
+            paymentLines = paymentLines.filter((l) => l.method !== 'voucher');
+            if (!paymentLines.length) {
+                paymentLines = [{ key: nextPayKey(), method: 'cash', amount: 0 }];
+            }
+            if (!paymentLines.some((l) => l.key === activePayKey)) {
+                activePayKey = paymentLines[paymentLines.length - 1].key;
+            }
+            renderPaymentLines();
+            renderCart();
+        }
     }
 
     async function lookupVoucher(code, { announce = true } = {}) {
@@ -503,39 +804,83 @@ export function initPos() {
         if (!res.ok || !json.success) {
             clearVoucher(true);
             toast(json.message || 'Voucher tidak valid');
+            renderCart();
             return null;
+        }
+
+        if (!hasPayMethod('voucher')) {
+            addOrFocusPaymentMethod('voucher');
+        } else {
+            const vLine = paymentLines.find((l) => l.method === 'voucher');
+            if (vLine) activePayKey = vLine.key;
         }
 
         appliedVoucher = json.voucher;
         if (els.voucherCode) els.voucherCode.value = appliedVoucher.code;
-        if (els.method) {
-            if (window.jQuery) jQuery(els.method).val('voucher').trigger('change');
-            else {
-                els.method.value = 'voucher';
-                onPaymentMethodChange();
+
+        const applyAmt = Math.min(Number(appliedVoucher.amount || 0), t.total);
+        const shortfall = Math.max(0, t.total - applyAmt);
+
+        if (els.voucherInfo) {
+            els.voucherInfo.classList.remove('hidden');
+            els.voucherInfo.className = 'text-xs font-medium text-brand-700';
+            els.voucherInfo.textContent = shortfall > 0
+                ? `Voucher ${appliedVoucher.code} · Rp ${applyAmt.toLocaleString('id-ID')} · sisa Rp ${shortfall.toLocaleString('id-ID')} — tambah metode lain`
+                : `Voucher ${appliedVoucher.code} · Rp ${applyAmt.toLocaleString('id-ID')} · menutup total`;
+        }
+
+        if (shortfall > 0) {
+            // isi sisa ke baris non-voucher aktif / buat tunai
+            let other = getActiveLine();
+            if (!other || other.method === 'voucher' || other.method === 'credit') {
+                other = paymentLines.find((l) => l.method !== 'voucher' && l.method !== 'credit');
+            }
+            if (!other) {
+                addOrFocusPaymentMethod('cash');
+                other = paymentLines.find((l) => l.method === 'cash');
+            }
+            if (other) {
+                other.amount = shortfall;
+                activePayKey = other.key;
             }
         }
-        setPaid(Math.min(Number(appliedVoucher.amount || 0), t.total));
-        if (els.voucherInfo) {
-            const ok = appliedVoucher.covers_total;
-            els.voucherInfo.classList.remove('hidden');
-            els.voucherInfo.className = `text-xs font-medium ${ok ? 'text-brand-700' : 'text-rose-600'}`;
-            els.voucherInfo.textContent = ok
-                ? `Voucher ${appliedVoucher.code} · Rp ${Number(appliedVoucher.amount).toLocaleString('id-ID')} · cukup untuk total`
-                : `Voucher Rp ${Number(appliedVoucher.amount).toLocaleString('id-ID')} kurang Rp ${Number(appliedVoucher.shortfall).toLocaleString('id-ID')}`;
+
+        if (announce) {
+            toast(shortfall > 0
+                ? `Voucher Rp ${applyAmt.toLocaleString('id-ID')} · sisa Rp ${shortfall.toLocaleString('id-ID')}`
+                : `Voucher diterapkan: ${appliedVoucher.code}`);
         }
-        if (announce) toast(`Voucher diterapkan: ${appliedVoucher.code}`);
+        renderPaymentLines();
         renderCart();
         return appliedVoucher;
     }
 
-    function syncVoucherBox(method) {
-        const isVoucher = method === 'voucher';
-        els.voucherBox?.classList.toggle('hidden', !isVoucher);
-        if (!isVoucher) clearVoucher(true);
-        if (isVoucher) {
-            setTimeout(() => els.voucherCode?.focus(), 50);
+    function buildPayments(t) {
+        const payments = [];
+        paymentLines.forEach((line) => {
+            if (line.method === 'voucher') {
+                if (t.voucherAmount > 0 && appliedVoucher?.code) {
+                    payments.push({
+                        method: 'voucher',
+                        amount: t.voucherAmount,
+                        voucher_code: String(appliedVoucher.code).toUpperCase(),
+                    });
+                }
+            } else if (line.method === 'credit') {
+                if (t.creditAmount > 0.009) {
+                    payments.push({ method: 'credit', amount: t.creditAmount });
+                }
+            } else if ((Number(line.amount) || 0) > 0) {
+                payments.push({
+                    method: line.method,
+                    amount: Math.max(0, Number(line.amount) || 0),
+                });
+            }
+        });
+        if (!payments.length) {
+            payments.push({ method: 'cash', amount: 0 });
         }
+        return payments;
     }
 
     async function checkout() {
@@ -545,33 +890,35 @@ export function initPos() {
         }
 
         const t = totals();
-        const method = (window.jQuery && els.method ? jQuery(els.method).val() : els.method?.value) || 'cash';
-        if (method === 'credit') {
-            if (!els.customer?.value?.trim()) {
-                toast('Isi nama pelanggan untuk penjualan piutang');
-                return;
-            }
-        } else if (method === 'voucher') {
+
+        if (!paymentLines.length) {
+            toast('Pilih minimal satu metode pembayaran');
+            return;
+        }
+        if (t.hasVoucher) {
             if (!navigator.onLine) {
                 toast('Pembayaran voucher membutuhkan koneksi online');
                 return;
             }
-            if (!appliedVoucher?.code && !els.voucherCode?.value?.trim()) {
+            if (!appliedVoucher?.code) {
                 toast('Scan / isi kode voucher terlebih dahulu');
+                focusVoucherField();
                 return;
             }
-            if (appliedVoucher && Number(appliedVoucher.amount || 0) + 0.0001 < t.total) {
-                toast('Nilai voucher kurang dari total belanja');
-                return;
-            }
-        } else if (t.paid < t.total) {
-            toast('Jumlah bayar kurang');
+        }
+        if (t.hasCredit && !els.customer?.value?.trim()) {
+            toast('Isi nama pelanggan untuk penjualan piutang');
+            return;
+        }
+        if (t.remaining > 0.009) {
+            toast(`Sisa ${formatMoney(t.remaining)}. Tambah metode pembayaran lain.`);
             return;
         }
 
-        const voucherCode = method === 'voucher'
-            ? String(appliedVoucher?.code || els.voucherCode?.value || '').trim().toUpperCase()
-            : null;
+        const payments = buildPayments(t);
+        const hasVoucher = payments.some((p) => p.method === 'voucher');
+        const methods = [...new Set(payments.map((p) => p.method))];
+        const paymentMethod = methods.length > 1 ? 'mixed' : (methods[0] || method);
 
         const payload = {
             local_id: uid(),
@@ -582,10 +929,12 @@ export function initPos() {
             discount: t.discount,
             tax: t.tax,
             total: t.total,
-            paid: method === 'credit' ? Math.min(t.paid, t.total) : (method === 'voucher' ? t.total : t.paid),
-            change: method === 'credit' || method === 'voucher' ? 0 : t.change,
-            payment_method: method,
-            voucher_code: voucherCode,
+            paid: t.paid,
+            change: t.change,
+            payment_method: paymentMethod,
+            voucher_code: hasVoucher ? String(appliedVoucher.code).toUpperCase() : null,
+            voucher_amount: t.voucherAmount || null,
+            payments,
             sold_at: new Date().toISOString(),
             items: cart.map((c) => ({
                 ...c,
@@ -612,9 +961,13 @@ export function initPos() {
                 resultInvoice = json.transaction.invoice_number;
                 payload.invoice_number = resultInvoice;
                 payload.synced = true;
+                if (json.transaction?.payments) payload.payments = json.transaction.payments;
             } else {
-                if (!OfflineStore.isOfflineEnabled()) {
+                if (!OfflineStore.isQueueEnabled()) {
                     throw new Error('Offline. Aktifkan mode offline di Pengaturan terlebih dahulu.');
+                }
+                if (hasVoucher) {
+                    throw new Error('Pembayaran voucher membutuhkan koneksi online.');
                 }
                 payload.invoice_number = 'OFF-' + Date.now();
                 payload.synced = false;
@@ -623,7 +976,11 @@ export function initPos() {
                 toast('Disimpan offline — akan disinkron saat online');
             }
         } catch (err) {
-            if (OfflineStore.isOfflineEnabled()) {
+            if (hasVoucher) {
+                toast(err.message || 'Gagal checkout');
+                return;
+            }
+            if (OfflineStore.isQueueEnabled()) {
                 payload.invoice_number = 'OFF-' + Date.now();
                 payload.synced = false;
                 await OfflineStore.saveTransaction(payload);
@@ -637,7 +994,6 @@ export function initPos() {
 
         lastTransaction = payload;
 
-        // Cetak di background — checkout/modal tidak menunggu printer selesai
         void (async () => {
             try {
                 await refreshPrinterBeforePrint();
@@ -651,11 +1007,10 @@ export function initPos() {
         })();
 
         cart = [];
-        setPaid(0);
-        clearVoucher(true);
         els.customer.value = '';
         if (els.discount) els.discount.value = '0';
         if (els.tableNumber) els.tableNumber.value = '';
+        resetPaymentLines('cash');
         renderCart();
 
         const typeLabel = payload.order_type === 'takeaway' ? 'Take Away' : 'Dine In';
@@ -691,28 +1046,63 @@ export function initPos() {
     });
 
     bindRupiahInput(els.discount, renderCart);
-    bindRupiahInput(els.paid, renderCart);
 
-    if (window.jQuery && els.method) {
-        jQuery(els.method).on('change', onPaymentMethodChange);
-    } else {
-        els.method?.addEventListener('change', onPaymentMethodChange);
+    // Default satu baris: select Tunai + nominal
+    if (!paymentLines.length) {
+        paymentLines = [{ key: nextPayKey(), method: 'cash', amount: 0 }];
+        activePayKey = paymentLines[0].key;
     }
+    renderPaymentLines();
 
-    function onPaymentMethodChange() {
-        const val = window.jQuery ? jQuery(els.method).val() : els.method?.value;
-        if (val === 'credit') {
-            setPaid(0);
-            if (els.customer) els.customer.placeholder = 'Nama pelanggan (wajib untuk piutang)';
-        } else if (els.customer) {
-            els.customer.placeholder = 'Nama pelanggan (opsional)';
+    els.btnAddPayment?.addEventListener('click', () => {
+        addPaymentLine('cash');
+    });
+
+    els.payLinesEl?.addEventListener('click', (e) => {
+        const rem = e.target.closest('[data-pay-remove]');
+        if (rem) {
+            if (rem.disabled) return;
+            removePaymentLine(rem.dataset.payRemove);
+            return;
         }
-        syncVoucherBox(val);
-        renderCart();
-    }
+        const row = e.target.closest('[data-pay-key]');
+        if (row?.dataset?.payKey) {
+            activePayKey = row.dataset.payKey;
+            syncPayUI();
+            els.payLinesEl.querySelectorAll('.pos-pay-line').forEach((el) => {
+                el.classList.toggle('is-active', el.dataset.payKey === activePayKey);
+            });
+        }
+    });
+
+    els.payLinesEl?.addEventListener('change', (e) => {
+        const sel = e.target.closest('[data-pay-method]');
+        if (!sel) return;
+        changePaymentMethod(sel.dataset.payMethod, sel.value);
+    });
+
+    els.payLinesEl?.addEventListener('input', (e) => {
+        const input = e.target.closest('[data-pay-amount]');
+        if (!input) return;
+        const raw = parseRupiah(input.value);
+        input.value = formatRupiahInput(raw);
+        setLineAmount(input.dataset.payAmount, raw);
+    });
+
+    els.payLinesEl?.addEventListener('focusin', (e) => {
+        const row = e.target.closest('[data-pay-key]');
+        if (!row) return;
+        activePayKey = row.dataset.payKey;
+        const line = paymentLines.find((l) => l.key === activePayKey);
+        if (line?.method === 'voucher') focusVoucherField();
+    });
 
     els.btnApplyVoucher?.addEventListener('click', () => {
         lookupVoucher(els.voucherCode?.value);
+    });
+    els.btnClearVoucher?.addEventListener('click', () => {
+        clearVoucher();
+        toast('Voucher dilepas');
     });
     els.voucherCode?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -722,7 +1112,17 @@ export function initPos() {
     });
 
     document.getElementById('btn-pay-exact')?.addEventListener('click', () => {
-        setPaid(totals().total);
+        const t = totals();
+        const line = getActiveLine();
+        if (line && line.method !== 'voucher' && line.method !== 'credit') {
+            // isi agar menutup sisa (termasuk amount baris ini yang sudah dihitung di remaining)
+            const others = paymentLines
+                .filter((l) => l.key !== line.key && l.method !== 'credit')
+                .reduce((s, l) => s + lineAmount(l, t.total), 0);
+            setPaid(Math.max(0, t.total - others));
+        } else {
+            setPaid(t.remaining > 0 ? t.remaining : t.total);
+        }
     });
 
     document.querySelectorAll('.btn-quick-pay').forEach((btn) => {
@@ -880,6 +1280,10 @@ export function initPos() {
             const when = trx.sold_at ? new Date(trx.sold_at).toLocaleString('id-ID') : '-';
             const isVoid = trx.status === 'void';
             const typeLabel = trx.order_type === 'takeaway' ? 'Take Away' : 'Dine In';
+            const payRows = normalizePaymentRows(trx);
+            const payDetail = payRows.length > 1
+                ? payRows.map((p) => `${paymentRowLabel(p)} ${formatMoney(p.amount)}`).join(' · ')
+                : paymentMethodsSummary(trx);
             return `
                 <div class="history-row ${isVoid ? 'is-void' : ''}">
                     <div class="min-w-0 flex-1">
@@ -887,7 +1291,7 @@ export function initPos() {
                             ${trx.invoice_number || trx.local_id || '-'}
                         </button>
                         <div class="text-xs text-slate-500">${when} · ${typeLabel}${trx.customer_name ? ' · ' + trx.customer_name : ''}</div>
-                        <div class="text-xs text-slate-400">${(trx.items || []).length} item · ${paymentMethodLabel(trx.payment_method)}${isVoid ? ' · VOID' : ''}</div>
+                        <div class="text-xs text-slate-400">${(trx.items || []).length} item · ${payDetail}${isVoid ? ' · VOID' : ''}</div>
                     </div>
                     <div class="text-right shrink-0">
                         <div class="font-bold text-sm">${formatMoney(trx.total)}</div>
@@ -919,8 +1323,7 @@ export function initPos() {
                 addProduct(product);
                 toast(`Ditambahkan: ${product.name}`);
             } else {
-                const method = (window.jQuery && els.method ? jQuery(els.method).val() : els.method?.value) || 'cash';
-                const looksLikeVoucher = /^VCH/i.test(String(code || '')) || method === 'voucher';
+                const looksLikeVoucher = /^VCH/i.test(String(code || '')) || hasPayMethod('voucher');
                 if (looksLikeVoucher) {
                     await lookupVoucher(code);
                 } else {

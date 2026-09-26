@@ -253,6 +253,9 @@
             const el = this;
             const $el = jQuery(el);
             if (el.tagName !== 'SELECT' || $el.attr('data-no-select2') != null) return;
+            // Jangan init Select2 untuk select tersembunyi / metode bayar POS dinamis
+            if ($el.hasClass('hidden') || $el.attr('aria-hidden') === 'true' || $el.hasClass('pos-pay-line-method')) return;
+            if ($el.closest('#payment-lines, .pos-cart-pay').length && $el.hasClass('pos-pay-line-method')) return;
 
             try {
                 const $wrapParent = $el.parent();

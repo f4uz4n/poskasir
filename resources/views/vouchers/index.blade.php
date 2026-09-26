@@ -67,68 +67,90 @@
             <button class="btn btn-primary">Filter</button>
         </form>
 
-        <form method="GET" action="{{ route('vouchers.print') }}" id="print-selected-form">
-            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <h2 class="font-bold">Daftar voucher</h2>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 class="font-bold">Daftar voucher</h2>
+            <form method="GET" action="{{ route('vouchers.print') }}" id="print-selected-form" class="inline">
+                <input type="hidden" name="ids" id="print-ids" value="">
                 <button type="submit" class="btn btn-secondary text-sm">Cetak terpilih</button>
-            </div>
-            <input type="hidden" name="ids" id="print-ids" value="">
+            </form>
+        </div>
 
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="text-left text-slate-500 border-b">
-                        <th class="py-2 pr-2 w-8"><input type="checkbox" id="check-all-vouchers"></th>
-                        <th class="py-2 pr-2">Kode</th>
-                        <th class="py-2 pr-2 text-right">Nilai</th>
-                        <th class="py-2 pr-2">Status</th>
-                        <th class="py-2 pr-2">Kadaluarsa</th>
-                        <th class="py-2 text-right">Aksi</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse($vouchers as $v)
-                        @php
-                            $badge = match($v->status) {
-                                'active' => 'bg-emerald-100 text-emerald-700',
-                                'used' => 'bg-slate-100 text-slate-600',
-                                'cancelled' => 'bg-rose-100 text-rose-700',
-                                default => 'bg-amber-100 text-amber-700',
-                            };
-                        @endphp
-                        <tr class="border-b border-slate-100">
-                            <td class="py-2.5 pr-2">
-                                <input type="checkbox" class="voucher-check" value="{{ $v->id }}">
-                            </td>
-                            <td class="py-2.5 pr-2">
-                                <div class="font-mono font-semibold">{{ $v->code }}</div>
-                                <div class="text-xs text-slate-400">{{ $v->title ?: 'Voucher' }}</div>
-                            </td>
-                            <td class="py-2.5 pr-2 text-right font-semibold">Rp {{ number_format($v->amount, 0, ',', '.') }}</td>
-                            <td class="py-2.5 pr-2">
-                                <span class="px-2 py-0.5 rounded-full text-xs font-semibold {{ $badge }}">{{ $v->statusLabel() }}</span>
-                                @if($v->usedOnTransaction)
-                                    <div class="text-[11px] text-slate-400 mt-0.5">{{ $v->usedOnTransaction->invoice_number }}</div>
-                                @endif
-                            </td>
-                            <td class="py-2.5 pr-2 text-xs text-slate-500">
-                                {{ $v->expires_at ? $v->expires_at->format('d/m/Y H:i') : '—' }}
-                            </td>
-                            <td class="py-2.5 text-right whitespace-nowrap">
-                                <a href="{{ route('vouchers.print', ['ids' => $v->id]) }}" class="text-brand-700 font-medium text-sm">Cetak</a>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-slate-500 border-b">
+                    <th class="py-2 pr-2 w-8"><input type="checkbox" id="check-all-vouchers"></th>
+                    <th class="py-2 pr-2">Kode</th>
+                    <th class="py-2 pr-2 text-right">Nilai</th>
+                    <th class="py-2 pr-2">Status</th>
+                    <th class="py-2 pr-2">Kadaluarsa</th>
+                    <th class="py-2 text-right">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($vouchers as $v)
+                    @php
+                        $badge = match($v->status) {
+                            'active' => 'bg-emerald-100 text-emerald-700',
+                            'used' => 'bg-slate-100 text-slate-600',
+                            'cancelled' => 'bg-rose-100 text-rose-700',
+                            default => 'bg-amber-100 text-amber-700',
+                        };
+                    @endphp
+                    <tr class="border-b border-slate-100">
+                        <td class="py-2.5 pr-2">
+                            <input type="checkbox" class="voucher-check" value="{{ $v->id }}">
+                        </td>
+                        <td class="py-2.5 pr-2">
+                            <div class="font-mono font-semibold">{{ $v->code }}</div>
+                            <div class="text-xs text-slate-400">{{ $v->title ?: 'Voucher' }}</div>
+                        </td>
+                        <td class="py-2.5 pr-2 text-right font-semibold">Rp {{ number_format($v->amount, 0, ',', '.') }}</td>
+                        <td class="py-2.5 pr-2">
+                            <span class="px-2 py-0.5 rounded-full text-xs font-semibold {{ $badge }}">{{ $v->statusLabel() }}</span>
+                            @if($v->usedOnTransaction)
+                                <div class="text-[11px] text-slate-400 mt-0.5">{{ $v->usedOnTransaction->invoice_number }}</div>
+                            @endif
+                        </td>
+                        <td class="py-2.5 pr-2 text-xs text-slate-500">
+                            {{ $v->expires_at ? $v->expires_at->format('d/m/Y H:i') : '—' }}
+                        </td>
+                        <td class="py-2.5 text-right">
+                            <div class="inline-flex items-center justify-end gap-1.5">
+                                <a href="{{ route('vouchers.print', ['ids' => $v->id]) }}"
+                                   class="btn-icon"
+                                   title="Cetak"
+                                   aria-label="Cetak voucher">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                                        <rect x="6" y="14" width="12" height="8"></rect>
+                                    </svg>
+                                </a>
                                 @if($v->status === 'active')
-                                    <form method="POST" action="{{ route('vouchers.cancel', $v) }}" class="inline" onsubmit="return confirm('Batalkan voucher ini?')">
+                                    <form method="POST" action="{{ route('vouchers.destroy', $v) }}" class="inline m-0" onsubmit="return confirm('Hapus voucher {{ $v->code }} secara permanen?')">
                                         @csrf
-                                        <button class="text-rose-600 font-medium text-sm ml-2">Batal</button>
+                                        @method('DELETE')
+                                        <button type="submit"
+                                                class="btn-icon text-rose-600 hover:text-rose-700 hover:border-rose-200"
+                                                title="Hapus"
+                                                aria-label="Hapus voucher">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                                            </svg>
+                                        </button>
                                     </form>
                                 @endif
-                            </td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="6" class="py-10 text-center text-slate-500">Belum ada voucher.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </form>
+                            </div>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="py-10 text-center text-slate-500">Belum ada voucher.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
 
         <div class="mt-4">{{ $vouchers->links() }}</div>
     </div>

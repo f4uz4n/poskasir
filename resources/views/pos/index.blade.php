@@ -103,25 +103,30 @@
 
                 <div class="pos-cart-pay space-y-2">
                     <input id="customer-name" type="text" class="input py-2 text-sm" placeholder="Nama pelanggan (opsional)">
-                    <div class="grid grid-cols-2 gap-2">
-                        <select id="payment-method" class="input py-2 text-sm">
-                            <option value="cash">Tunai</option>
-                            <option value="qris">QRIS</option>
-                            <option value="transfer">Transfer</option>
-                            <option value="card">Kartu</option>
-                            <option value="voucher">Voucher</option>
-                            <option value="credit">Piutang</option>
-                        </select>
-                        <div class="relative">
-                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Rp</span>
-                            <input id="paid-amount" type="text" inputmode="numeric" class="input pl-8 py-2 text-sm text-right font-semibold" placeholder="0">
+
+                    <div id="payment-lines" class="pos-pay-lines space-y-1.5"></div>
+
+                    <div id="voucher-pay-box" class="hidden space-y-1.5 rounded-lg border border-dashed border-amber-200 bg-amber-50/60 p-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-xs font-semibold text-amber-800">Scan / ketik kode voucher</span>
+                            <button type="button" id="btn-clear-voucher" class="hidden text-[11px] font-medium text-rose-600 hover:text-rose-700">Lepas</button>
                         </div>
-                    </div>
-                    <div id="voucher-pay-box" class="hidden space-y-1.5">
-                        <input id="voucher-code" type="text" class="input py-2 text-sm font-mono uppercase" placeholder="Scan / ketik kode voucher" autocomplete="off" inputmode="none" data-no-keyboard>
+                        <div class="flex gap-1.5">
+                            <input id="voucher-code" type="text" class="input py-2 text-sm font-mono uppercase flex-1" placeholder="Arahkan scanner ke barcode voucher" autocomplete="off" inputmode="none" data-no-keyboard>
+                            <button type="button" id="btn-apply-voucher" class="btn btn-secondary text-xs py-2 px-3 shrink-0">Pakai</button>
+                        </div>
                         <div id="voucher-info" class="text-xs text-slate-500 hidden"></div>
-                        <button type="button" id="btn-apply-voucher" class="btn btn-secondary w-full text-xs py-1.5">Terapkan voucher</button>
                     </div>
+
+                    <button type="button" id="btn-add-payment" class="btn btn-ghost w-full text-xs py-1.5 border border-dashed border-slate-300">
+                        + Tambah metode bayar
+                    </button>
+
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-500">Sisa tagihan</span>
+                        <span id="pay-remaining" class="font-bold text-amber-700">Rp 0</span>
+                    </div>
+
                     <div class="pos-quick-pay flex flex-wrap gap-1.5">
                         <button type="button" id="btn-pay-exact" class="btn btn-ghost text-xs py-1 px-2">Uang pas</button>
                         <button type="button" class="btn-quick-pay btn btn-ghost text-xs py-1 px-2" data-amount="10000">10rb</button>

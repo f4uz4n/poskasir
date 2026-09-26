@@ -127,7 +127,8 @@ Route::middleware('auth')->group(function () {
             Route::get('/vouchers', [VoucherController::class, 'index'])->name('vouchers.index');
             Route::post('/vouchers', [VoucherController::class, 'store'])->name('vouchers.store');
             Route::get('/vouchers/print', [VoucherController::class, 'print'])->name('vouchers.print');
-            Route::post('/vouchers/{voucher}/cancel', [VoucherController::class, 'cancel'])->name('vouchers.cancel');
+            Route::post('/vouchers/{voucher}/cancel', [VoucherController::class, 'destroy'])->name('vouchers.cancel');
+            Route::delete('/vouchers/{voucher}', [VoucherController::class, 'destroy'])->name('vouchers.destroy');
 
             Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
             Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');

@@ -218,7 +218,12 @@ export function shouldOpenDrawer(transaction = {}, settings = {}, options = {}) 
     const when = extra.cash_drawer_when || 'cash';
     const method = String(transaction.payment_method || 'cash').toLowerCase();
     if (when === 'always') return true;
-    return method === 'cash';
+    if (method === 'cash') return true;
+    if (method === 'mixed') {
+        const payments = Array.isArray(transaction.payments) ? transaction.payments : [];
+        return payments.some((p) => String(p.method || '').toLowerCase() === 'cash');
+    }
+    return false;
 }
 
 function loadLogoImage(url) {
@@ -240,8 +245,31 @@ function paymentLabel(method = '') {
     if (m === 'card') return 'Kartu';
     if (m === 'credit') return 'Piutang';
     if (m === 'voucher') return 'Voucher';
+    if (m === 'mixed') return 'Campuran';
     if (m === 'other') return 'Lainnya';
     return method || '-';
+}
+
+function pushPaymentLines(transaction, pushMoney) {
+    const payments = Array.isArray(transaction.payments) ? transaction.payments : [];
+    if (payments.length > 1 || (payments.length === 1 && payments[0].method === 'voucher' && Number(transaction.voucher_amount) > 0)) {
+        payments.forEach((p) => {
+            const label = p.method === 'voucher' && p.voucher_code
+                ? `Voucher ${p.voucher_code}`
+                : paymentLabel(p.method);
+            pushMoney(label, money(p.amount));
+        });
+        return;
+    }
+    if (Number(transaction.voucher_amount) > 0) {
+        pushMoney(`Voucher${transaction.voucher_code ? ' ' + transaction.voucher_code : ''}`, money(transaction.voucher_amount));
+        const other = Math.max(0, Number(transaction.paid || 0) - Number(transaction.voucher_amount || 0));
+        if (other > 0.009) {
+            pushMoney(paymentLabel(transaction.payment_method === 'mixed' ? 'cash' : transaction.payment_method), money(other));
+        }
+        return;
+    }
+    pushMoney(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid));
 }
 
 function wrapTextLine(text, maxLen) {
@@ -295,7 +323,7 @@ export function buildReceiptText(transaction, settings = {}, profile = null) {
     if (Number(transaction.discount) > 0) pushMoney('Diskon', money(transaction.discount));
     if (Number(transaction.tax) > 0) pushMoney('Pajak', money(transaction.tax));
     pushMoney('TOTAL', money(transaction.total));
-    pushMoney(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid));
+    pushPaymentLines(transaction, pushMoney);
     pushMoney('Kembali', money(transaction.change));
     rule();
     String(footer || 'Terima kasih')
@@ -378,7 +406,23 @@ export function buildReceipt(transaction, settings = {}, profile = null, options
     encoder.bold(true);
     padLineMulti('TOTAL', money(transaction.total), cols).forEach((ln) => encoder.line(ln));
     encoder.bold(false);
-    padLineMulti(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid), cols).forEach((ln) => encoder.line(ln));
+    const payments = Array.isArray(transaction.payments) ? transaction.payments : [];
+    if (payments.length > 0) {
+        payments.forEach((p) => {
+            const label = p.method === 'voucher' && p.voucher_code
+                ? `Voucher ${p.voucher_code}`
+                : paymentLabel(p.method);
+            padLineMulti(label, money(p.amount), cols).forEach((ln) => encoder.line(ln));
+        });
+    } else if (Number(transaction.voucher_amount) > 0) {
+        padLineMulti(`Voucher${transaction.voucher_code ? ' ' + transaction.voucher_code : ''}`, money(transaction.voucher_amount), cols).forEach((ln) => encoder.line(ln));
+        const other = Math.max(0, Number(transaction.paid || 0) - Number(transaction.voucher_amount || 0));
+        if (other > 0.009) {
+            padLineMulti(paymentLabel(transaction.payment_method === 'mixed' ? 'cash' : transaction.payment_method), money(other), cols).forEach((ln) => encoder.line(ln));
+        }
+    } else {
+        padLineMulti(`Bayar (${paymentLabel(transaction.payment_method)})`, money(transaction.paid), cols).forEach((ln) => encoder.line(ln));
+    }
     padLineMulti('Kembali', money(transaction.change), cols).forEach((ln) => encoder.line(ln));
     encoder.line('-'.repeat(cols));
     encoder.align('center');

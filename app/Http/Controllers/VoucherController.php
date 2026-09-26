@@ -110,12 +110,29 @@ class VoucherController extends Controller
 
     public function cancel(Voucher $voucher)
     {
+        return $this->destroy($voucher);
+    }
+
+    public function destroy(Voucher $voucher)
+    {
         abort_unless($voucher->user_id === Auth::user()->storeOwnerId(), 403);
-        abort_unless($voucher->status === 'active', 422, 'Hanya voucher aktif yang bisa dibatalkan.');
 
-        $voucher->update(['status' => 'cancelled']);
+        if ($voucher->status === 'used') {
+            return back()->withErrors(['voucher' => 'Voucher sudah terpakai tidak bisa dihapus.']);
+        }
 
-        return back()->with('success', 'Voucher '.$voucher->code.' dibatalkan.');
+        // Lepas referensi di transaksi (jika ada) lalu hapus record
+        \App\Models\Transaction::where('voucher_id', $voucher->id)->update([
+            'voucher_id' => null,
+        ]);
+        \App\Models\TransactionPayment::where('voucher_id', $voucher->id)->update([
+            'voucher_id' => null,
+        ]);
+
+        $code = $voucher->code;
+        $voucher->delete();
+
+        return back()->with('success', 'Voucher '.$code.' dihapus.');
     }
 
     public function lookup(Request $request)

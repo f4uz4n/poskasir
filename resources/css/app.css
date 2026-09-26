@@ -1208,6 +1208,69 @@ td .select2-wrap {
     gap: 0.5rem;
 }
 
+.pos-pay-lines {
+    min-width: 0;
+}
+
+.pos-pay-line {
+    display: grid;
+    grid-template-columns: minmax(7.5rem, 0.95fr) 1fr auto;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.pos-pay-line.is-active .pos-pay-line-method,
+.pos-pay-line.is-active .pos-pay-line-amount {
+    border-color: #5eead4;
+}
+
+.pos-pay-line-method {
+    font-size: 0.8125rem;
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+}
+
+.pos-pay-line-amount {
+    text-align: right;
+    font-weight: 600;
+    font-size: 0.875rem;
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+}
+
+.pos-pay-line-amount-ro {
+    text-align: right;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #334155;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.6rem;
+    background: #f8fafc;
+}
+
+.pos-pay-line-remove {
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #e11d48;
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 0.5rem;
+}
+
+.pos-pay-line-remove:hover {
+    background: #fff1f2;
+    border-color: #fecdd3;
+}
+
+.pos-pay-line-remove:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
 .pos-cart-action {
     border-top: 1px solid #e2e8f0;
     padding-top: 0.65rem;

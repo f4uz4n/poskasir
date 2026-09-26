@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\Receivable;
 use App\Models\Transaction;
 use App\Models\TransactionItem;
+use App\Models\TransactionPayment;
 use App\Models\Voucher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -27,7 +28,7 @@ class TransactionController extends Controller
         $settings = $user->storeOwner()->storeSetting;
 
         $transactions = Transaction::where('user_id', $ownerId)
-            ->with(['items', 'cashier'])
+            ->with(['items', 'cashier', 'payments'])
             ->when($request->get('q'), function ($q, $search) {
                 $q->where(function ($inner) use ($search) {
                     $inner->where('invoice_number', 'like', "%{$search}%")
@@ -58,8 +59,12 @@ class TransactionController extends Controller
             'total' => ['required', 'numeric', 'min:0'],
             'paid' => ['required', 'numeric', 'min:0'],
             'change' => ['nullable', 'numeric', 'min:0'],
-            'payment_method' => ['required', 'in:cash,qris,transfer,card,credit,voucher,other'],
+            'payment_method' => ['required', 'in:cash,qris,transfer,card,credit,voucher,mixed,other'],
             'voucher_code' => ['nullable', 'string', 'max:40'],
+            'payments' => ['nullable', 'array', 'min:1'],
+            'payments.*.method' => ['required_with:payments', 'in:cash,qris,transfer,card,credit,voucher,other'],
+            'payments.*.amount' => ['required_with:payments', 'numeric', 'min:0'],
+            'payments.*.voucher_code' => ['nullable', 'string', 'max:40'],
             'notes' => ['nullable', 'string'],
             'sold_at' => ['nullable', 'date'],
             'items' => ['required', 'array', 'min:1'],
@@ -73,67 +78,71 @@ class TransactionController extends Controller
             'items.*.subtotal' => ['required', 'numeric', 'min:0'],
         ]);
 
-        $isCredit = ($data['payment_method'] ?? '') === 'credit';
-        $isVoucher = ($data['payment_method'] ?? '') === 'voucher';
-
-        if ($isVoucher && blank($data['voucher_code'] ?? null)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Kode voucher wajib diisi / di-scan untuk pembayaran voucher.',
-            ], 422);
-        }
-
-        if (! $isCredit && ! $isVoucher && (float) $data['paid'] + 0.0001 < (float) $data['total']) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Jumlah bayar kurang dari total. Gunakan metode Piutang untuk penjualan kredit.',
-            ], 422);
-        }
-
-        if ($isCredit) {
-            $data['paid'] = min((float) $data['paid'], (float) $data['total']);
-            $data['change'] = 0;
-            if (blank($data['customer_name'] ?? null)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Nama pelanggan wajib diisi untuk penjualan piutang.',
-                ], 422);
-            }
-        }
-
         $actor = Auth::user();
         $ownerId = $actor->storeOwnerId();
         $owner = $actor->storeOwner();
         $settings = $owner->storeSetting;
         $enforceStock = $owner->hasFeature('kunci_stok') && ($settings?->stock_lock_enabled ?? false);
 
-        $voucherCode = $isVoucher ? strtoupper(trim($data['voucher_code'])) : null;
-        if ($isVoucher) {
-            $voucherCheck = Voucher::where('user_id', $ownerId)
-                ->where('code', $voucherCode)
-                ->first();
-
-            if (! $voucherCheck) {
-                return response()->json(['success' => false, 'message' => 'Voucher tidak ditemukan.'], 404);
-            }
-            $voucherCheck->markExpiredIfNeeded();
-            $voucherCheck->refresh();
-            if (! $voucherCheck->isUsable()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Voucher tidak dapat dipakai ('.$voucherCheck->statusLabel().').',
-                ], 422);
-            }
-            if ((float) $voucherCheck->amount + 0.0001 < (float) $data['total']) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Nilai voucher kurang. Voucher Rp '.number_format((float) $voucherCheck->amount, 0, ',', '.').', total Rp '.number_format((float) $data['total'], 0, ',', '.').'.',
-                ], 422);
-            }
-
-            $data['paid'] = (float) $data['total'];
-            $data['change'] = 0;
+        $paymentRows = $this->normalizePaymentRows($data);
+        if ($paymentRows === []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Minimal satu metode pembayaran diperlukan.',
+            ], 422);
         }
+
+        $hasCredit = collect($paymentRows)->contains(fn ($p) => ($p['method'] ?? '') === 'credit');
+        $hasVoucher = collect($paymentRows)->contains(fn ($p) => ($p['method'] ?? '') === 'voucher');
+
+        if ($hasCredit && blank($data['customer_name'] ?? null)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Nama pelanggan wajib diisi untuk penjualan piutang.',
+            ], 422);
+        }
+
+        if ($hasVoucher) {
+            foreach ($paymentRows as $row) {
+                if (($row['method'] ?? '') !== 'voucher') {
+                    continue;
+                }
+                if (blank($row['voucher_code'] ?? null)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Kode voucher wajib diisi / di-scan.',
+                    ], 422);
+                }
+            }
+        }
+
+        $nonCreditPaid = collect($paymentRows)
+            ->filter(fn ($p) => ($p['method'] ?? '') !== 'credit')
+            ->sum(fn ($p) => (float) $p['amount']);
+
+        if (! $hasCredit && $nonCreditPaid + 0.0001 < (float) $data['total']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Jumlah bayar kurang dari total. Bayar sisa dengan metode lain, atau gunakan Piutang.',
+            ], 422);
+        }
+
+        $methods = collect($paymentRows)->pluck('method')->unique()->values();
+        $primaryMethod = $methods->count() > 1
+            ? 'mixed'
+            : (string) ($methods->first() ?: $data['payment_method']);
+
+        $paidTotal = round(collect($paymentRows)->sum(fn ($p) => (float) $p['amount']), 2);
+        $changeAmount = $hasCredit
+            ? 0
+            : round(max(0, $paidTotal - (float) $data['total']), 2);
+
+        $data['payment_method'] = $primaryMethod;
+        $data['paid'] = $paidTotal;
+        $data['change'] = $changeAmount;
+
+        $voucherCodePrimary = collect($paymentRows)
+            ->first(fn ($p) => ($p['method'] ?? '') === 'voucher')['voucher_code'] ?? null;
 
         if (! empty($data['local_id'])) {
             $existing = Transaction::where('user_id', $ownerId)
@@ -143,13 +152,12 @@ class TransactionController extends Controller
             if ($existing) {
                 return response()->json([
                     'success' => true,
-                    'transaction' => $existing->load('items'),
+                    'transaction' => $existing->load(['items', 'payments']),
                     'message' => 'Transaksi sudah tersinkron.',
                 ]);
             }
         }
 
-        // Validasi stok terkunci (hanya produk yang track stok)
         if ($enforceStock) {
             foreach ($data['items'] as $item) {
                 if (empty($item['product_id'])) {
@@ -166,105 +174,176 @@ class TransactionController extends Controller
         }
 
         try {
-            $transaction = DB::transaction(function () use ($data, $ownerId, $actor, $isVoucher, $voucherCode) {
-            $invoice = 'INV-'.now()->format('YmdHis').'-'.Str::upper(Str::random(4));
+            $transaction = DB::transaction(function () use ($data, $ownerId, $actor, $paymentRows, $voucherCodePrimary, $hasCredit) {
+                $invoice = 'INV-'.now()->format('YmdHis').'-'.Str::upper(Str::random(4));
+                $total = (float) $data['total'];
+                $remainingToCover = $total;
 
-            $voucherId = null;
-            $voucherAmount = null;
+                $voucherId = null;
+                $voucherAmount = null;
+                $voucherCode = $voucherCodePrimary ? strtoupper(trim($voucherCodePrimary)) : null;
+                $resolvedPayments = [];
 
-            if ($isVoucher) {
-                $voucher = Voucher::where('user_id', $ownerId)
-                    ->where('code', $voucherCode)
-                    ->lockForUpdate()
-                    ->first();
+                foreach ($paymentRows as $row) {
+                    $method = strtolower((string) $row['method']);
+                    $amount = round((float) $row['amount'], 2);
+                    if ($amount <= 0 && $method !== 'credit') {
+                        continue;
+                    }
 
-                if (! $voucher || ! $voucher->isUsable()) {
-                    throw new \RuntimeException('Voucher tidak dapat dipakai.');
+                    $payVoucherId = null;
+                    $payVoucherCode = null;
+
+                    if ($method === 'voucher') {
+                        $code = strtoupper(trim((string) ($row['voucher_code'] ?? '')));
+                        $voucher = Voucher::where('user_id', $ownerId)
+                            ->where('code', $code)
+                            ->lockForUpdate()
+                            ->first();
+
+                        if (! $voucher) {
+                            throw new \RuntimeException('Voucher tidak ditemukan.');
+                        }
+                        $voucher->markExpiredIfNeeded();
+                        $voucher->refresh();
+                        if (! $voucher->isUsable()) {
+                            throw new \RuntimeException('Voucher tidak dapat dipakai ('.$voucher->statusLabel().').');
+                        }
+
+                        // Terapkan min(nilai voucher, sisa tagihan); tanpa kembalian dari voucher
+                        $apply = min((float) $voucher->amount, max(0, $remainingToCover));
+                        if ($apply <= 0) {
+                            throw new \RuntimeException('Voucher tidak diperlukan karena total sudah tertutup.');
+                        }
+
+                        $amount = round($apply, 2);
+                        $payVoucherId = $voucher->id;
+                        $payVoucherCode = $voucher->code;
+                        $voucherId = $voucher->id;
+                        $voucherCode = $voucher->code;
+                        $voucherAmount = $amount;
+                        $remainingToCover = max(0, round($remainingToCover - $amount, 2));
+
+                        $voucher->update([
+                            'status' => 'used',
+                            'used_at' => now(),
+                        ]);
+                    } elseif ($method === 'credit') {
+                        // Piutang menutup sisa; amount diisi dari sisa tagihan
+                        $amount = round(max(0, $remainingToCover), 2);
+                        $remainingToCover = 0;
+                    } else {
+                        $cover = min($amount, max(0, $remainingToCover));
+                        $remainingToCover = max(0, round($remainingToCover - $cover, 2));
+                    }
+
+                    if ($amount > 0 || $method === 'credit') {
+                        $resolvedPayments[] = [
+                            'method' => $method,
+                            'amount' => $amount,
+                            'voucher_id' => $payVoucherId,
+                            'voucher_code' => $payVoucherCode,
+                        ];
+                    }
                 }
-                if ((float) $voucher->amount + 0.0001 < (float) $data['total']) {
-                    throw new \RuntimeException('Nilai voucher kurang dari total belanja.');
+
+                if (! $hasCredit && $remainingToCover > 0.009) {
+                    throw new \RuntimeException('Pembayaran belum menutup total belanja. Sisa Rp '.number_format($remainingToCover, 0, ',', '.').'.');
                 }
 
-                $voucherId = $voucher->id;
-                $voucherAmount = (float) $voucher->amount;
-            }
+                $paidSum = round(collect($resolvedPayments)->sum('amount'), 2);
+                $change = $hasCredit ? 0 : round(max(0, $paidSum - $total), 2);
 
-            $trx = Transaction::create([
-                'user_id' => $ownerId,
-                'cashier_id' => $actor->id,
-                'invoice_number' => $invoice,
-                'local_id' => $data['local_id'] ?? null,
-                'customer_name' => $data['customer_name'] ?? null,
-                'order_type' => $data['order_type'],
-                'table_number' => $data['order_type'] === 'dine_in' ? ($data['table_number'] ?? null) : null,
-                'subtotal' => $data['subtotal'],
-                'discount' => $data['discount'] ?? 0,
-                'tax' => $data['tax'] ?? 0,
-                'total' => $data['total'],
-                'paid' => $data['paid'],
-                'change' => $isVoucher ? 0 : ($data['change'] ?? max(0, $data['paid'] - $data['total'])),
-                'payment_method' => $data['payment_method'],
-                'voucher_id' => $voucherId,
-                'voucher_code' => $voucherCode,
-                'voucher_amount' => $voucherAmount,
-                'status' => 'completed',
-                'is_synced' => true,
-                'notes' => $data['notes'] ?? null,
-                'sold_at' => $data['sold_at'] ?? now(),
-            ]);
+                $methodsUsed = collect($resolvedPayments)->pluck('method')->unique()->values();
+                $paymentMethod = $methodsUsed->count() > 1 ? 'mixed' : (string) ($methodsUsed->first() ?: 'cash');
 
-            if ($isVoucher && $voucherId) {
-                Voucher::where('id', $voucherId)->update([
-                    'status' => 'used',
-                    'used_at' => now(),
-                    'used_on_transaction_id' => $trx->id,
-                ]);
-            }
-            foreach ($data['items'] as $item) {
-                $cost = $item['cost'] ?? null;
-                if ($cost === null && ! empty($item['product_id'])) {
-                    $cost = Product::where('id', $item['product_id'])->value('cost') ?? 0;
-                }
-
-                TransactionItem::create([
-                    'transaction_id' => $trx->id,
-                    'product_id' => $item['product_id'] ?? null,
-                    'product_name' => $item['product_name'],
-                    'product_sku' => $item['product_sku'] ?? null,
-                    'price' => $item['price'],
-                    'cost' => $cost ?? 0,
-                    'qty' => $item['qty'],
-                    'discount' => $item['discount'] ?? 0,
-                    'subtotal' => $item['subtotal'],
-                ]);
-
-                if (! empty($item['product_id'])) {
-                    Product::where('id', $item['product_id'])
-                        ->where('user_id', $ownerId)
-                        ->where('track_stock', true)
-                        ->decrement('stock', (int) $item['qty']);
-                }
-            }
-
-            $remaining = max(0, (float) $trx->total - (float) $trx->paid);
-            if ($remaining > 0.009) {
-                Receivable::create([
+                $trx = Transaction::create([
                     'user_id' => $ownerId,
-                    'created_by' => $actor->id,
-                    'code' => 'PT-'.now()->format('YmdHis').'-'.Str::upper(Str::random(4)),
-                    'party_name' => $trx->customer_name ?: 'Pelanggan',
-                    'source' => 'sale',
-                    'transaction_id' => $trx->id,
-                    'amount' => $remaining,
-                    'paid_amount' => 0,
-                    'due_date' => now()->addDays(7)->toDateString(),
-                    'status' => 'unpaid',
-                    'notes' => 'Piutang dari penjualan '.$trx->invoice_number,
-                    'recorded_at' => now(),
+                    'cashier_id' => $actor->id,
+                    'invoice_number' => $invoice,
+                    'local_id' => $data['local_id'] ?? null,
+                    'customer_name' => $data['customer_name'] ?? null,
+                    'order_type' => $data['order_type'],
+                    'table_number' => $data['order_type'] === 'dine_in' ? ($data['table_number'] ?? null) : null,
+                    'subtotal' => $data['subtotal'],
+                    'discount' => $data['discount'] ?? 0,
+                    'tax' => $data['tax'] ?? 0,
+                    'total' => $data['total'],
+                    'paid' => $paidSum,
+                    'change' => $change,
+                    'payment_method' => $paymentMethod,
+                    'voucher_id' => $voucherId,
+                    'voucher_code' => $voucherCode,
+                    'voucher_amount' => $voucherAmount,
+                    'status' => 'completed',
+                    'is_synced' => true,
+                    'notes' => $data['notes'] ?? null,
+                    'sold_at' => $data['sold_at'] ?? now(),
                 ]);
-            }
 
-            return $trx->load('items');
+                if ($voucherId) {
+                    Voucher::where('id', $voucherId)->update([
+                        'used_on_transaction_id' => $trx->id,
+                    ]);
+                }
+
+                foreach ($resolvedPayments as $pay) {
+                    TransactionPayment::create([
+                        'transaction_id' => $trx->id,
+                        'method' => $pay['method'],
+                        'amount' => $pay['amount'],
+                        'voucher_id' => $pay['voucher_id'],
+                        'voucher_code' => $pay['voucher_code'],
+                    ]);
+                }
+
+                foreach ($data['items'] as $item) {
+                    $cost = $item['cost'] ?? null;
+                    if ($cost === null && ! empty($item['product_id'])) {
+                        $cost = Product::where('id', $item['product_id'])->value('cost') ?? 0;
+                    }
+
+                    TransactionItem::create([
+                        'transaction_id' => $trx->id,
+                        'product_id' => $item['product_id'] ?? null,
+                        'product_name' => $item['product_name'],
+                        'product_sku' => $item['product_sku'] ?? null,
+                        'price' => $item['price'],
+                        'cost' => $cost ?? 0,
+                        'qty' => $item['qty'],
+                        'discount' => $item['discount'] ?? 0,
+                        'subtotal' => $item['subtotal'],
+                    ]);
+
+                    if (! empty($item['product_id'])) {
+                        Product::where('id', $item['product_id'])
+                            ->where('user_id', $ownerId)
+                            ->where('track_stock', true)
+                            ->decrement('stock', (int) $item['qty']);
+                    }
+                }
+
+                $creditAmount = collect($resolvedPayments)
+                    ->where('method', 'credit')
+                    ->sum('amount');
+                if ($creditAmount > 0.009) {
+                    Receivable::create([
+                        'user_id' => $ownerId,
+                        'created_by' => $actor->id,
+                        'code' => 'PT-'.now()->format('YmdHis').'-'.Str::upper(Str::random(4)),
+                        'party_name' => $trx->customer_name ?: 'Pelanggan',
+                        'source' => 'sale',
+                        'transaction_id' => $trx->id,
+                        'amount' => $creditAmount,
+                        'paid_amount' => 0,
+                        'due_date' => now()->addDays(7)->toDateString(),
+                        'status' => 'unpaid',
+                        'notes' => 'Piutang dari penjualan '.$trx->invoice_number,
+                        'recorded_at' => now(),
+                    ]);
+                }
+
+                return $trx->load(['items', 'payments']);
             });
         } catch (\RuntimeException $e) {
             return response()->json([
@@ -280,6 +359,57 @@ class TransactionController extends Controller
         ]);
     }
 
+    /**
+     * Bangun daftar pembayaran dari payload baru (payments[]) atau format lama.
+     *
+     * @return array<int, array{method:string,amount:float,voucher_code:?string}>
+     */
+    private function normalizePaymentRows(array $data): array
+    {
+        if (! empty($data['payments']) && is_array($data['payments'])) {
+            $rows = [];
+            foreach ($data['payments'] as $row) {
+                $method = strtolower((string) ($row['method'] ?? ''));
+                if ($method === '') {
+                    continue;
+                }
+                $rows[] = [
+                    'method' => $method,
+                    'amount' => round((float) ($row['amount'] ?? 0), 2),
+                    'voucher_code' => isset($row['voucher_code']) && $row['voucher_code'] !== ''
+                        ? strtoupper(trim((string) $row['voucher_code']))
+                        : null,
+                ];
+            }
+
+            return $rows;
+        }
+
+        // Legacy: single payment_method + optional voucher_code
+        $method = strtolower((string) ($data['payment_method'] ?? 'cash'));
+        $rows = [];
+
+        if ($method === 'voucher' || filled($data['voucher_code'] ?? null)) {
+            $rows[] = [
+                'method' => 'voucher',
+                'amount' => (float) ($data['total'] ?? 0),
+                'voucher_code' => isset($data['voucher_code'])
+                    ? strtoupper(trim((string) $data['voucher_code']))
+                    : null,
+            ];
+        }
+
+        if ($method !== 'voucher') {
+            $rows[] = [
+                'method' => $method,
+                'amount' => round((float) ($data['paid'] ?? 0), 2),
+                'voucher_code' => null,
+            ];
+        }
+
+        return $rows;
+    }
+
     public function recent(Request $request)
     {
         $ownerId = Auth::user()->storeOwnerId();
@@ -287,7 +417,7 @@ class TransactionController extends Controller
         $today = now()->toDateString();
 
         $transactions = Transaction::where('user_id', $ownerId)
-            ->with('items')
+            ->with('items', 'payments')
             ->whereDate('sold_at', $today)
             ->latest('sold_at')
             ->limit($limit)
@@ -303,7 +433,7 @@ class TransactionController extends Controller
     {
         abort_unless($transaction->user_id === Auth::user()->storeOwnerId(), 403);
 
-        return response()->json($transaction->load('items'));
+        return response()->json($transaction->load(['items', 'payments']));
     }
 
     public function void(Transaction $transaction, TransactionVoidService $voidService)

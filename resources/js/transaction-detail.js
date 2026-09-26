@@ -12,8 +12,65 @@ export function paymentMethodLabel(method = '') {
     if (m === 'card') return 'Kartu';
     if (m === 'credit') return 'Piutang';
     if (m === 'voucher') return 'Voucher';
+    if (m === 'mixed') return 'Campuran';
     if (m === 'other') return 'Lainnya';
     return method || '-';
+}
+
+/** Normalisasi daftar pembayaran dari trx (payments[] atau fallback voucher/paid). */
+export function normalizePaymentRows(trx = {}) {
+    if (Array.isArray(trx.payments) && trx.payments.length) {
+        return trx.payments.map((p) => ({
+            method: String(p.method || 'other').toLowerCase(),
+            amount: Number(p.amount || 0),
+            voucher_code: p.voucher_code || null,
+        }));
+    }
+
+    const rows = [];
+    const voucherAmt = Number(trx.voucher_amount || 0);
+    if (voucherAmt > 0 || (trx.payment_method === 'voucher' && trx.voucher_code)) {
+        rows.push({
+            method: 'voucher',
+            amount: voucherAmt || Number(trx.paid || trx.total || 0),
+            voucher_code: trx.voucher_code || null,
+        });
+    }
+
+    const method = String(trx.payment_method || 'cash').toLowerCase();
+    if (method === 'mixed' && rows.length) {
+        const other = Math.max(0, Number(trx.paid || 0) - voucherAmt);
+        if (other > 0.009) {
+            rows.push({ method: 'cash', amount: other, voucher_code: null });
+        }
+        return rows;
+    }
+
+    if (method !== 'voucher' || !rows.length) {
+        if (method === 'voucher' && rows.length) return rows;
+        rows.push({
+            method: method === 'mixed' ? 'cash' : method,
+            amount: Number(trx.paid || 0),
+            voucher_code: null,
+        });
+    }
+
+    return rows;
+}
+
+export function paymentRowLabel(p = {}) {
+    if (String(p.method || '').toLowerCase() === 'voucher') {
+        return p.voucher_code ? `Voucher ${p.voucher_code}` : 'Voucher';
+    }
+    return paymentMethodLabel(p.method);
+}
+
+/** Ringkas untuk daftar riwayat: "Voucher + Tunai" atau "Tunai". */
+export function paymentMethodsSummary(trx = {}) {
+    const rows = normalizePaymentRows(trx);
+    if (!rows.length) return paymentMethodLabel(trx.payment_method);
+    const labels = [...new Set(rows.map((p) => paymentMethodLabel(p.method)))];
+    return labels.join(' + ');
 }
 
 export function historyPayload(trx) {
@@ -45,7 +102,14 @@ export function buildWhatsAppText(trx, settings = {}) {
     if (Number(trx.discount) > 0) lines.push(`Diskon: ${fmt(trx.discount)}`);
     if (Number(trx.tax) > 0) lines.push(`Pajak: ${fmt(trx.tax)}`);
     lines.push(`*Total: ${fmt(trx.total)}*`);
-    lines.push(`Bayar (${paymentMethodLabel(trx.payment_method)}): ${fmt(trx.paid)}`);
+    const payRows = normalizePaymentRows(trx);
+    if (payRows.length) {
+        payRows.forEach((p) => {
+            lines.push(`${paymentRowLabel(p)}: ${fmt(p.amount)}`);
+        });
+    } else {
+        lines.push(`Bayar (${paymentMethodLabel(trx.payment_method)}): ${fmt(trx.paid)}`);
+    }
     lines.push(`Kembali: ${fmt(trx.change)}`);
     if (settings.receipt_footer) {
         lines.push('');
@@ -85,11 +149,24 @@ export function renderTransactionDetail(trx, settings = {}) {
         `;
     }).join('');
 
+    const payRows = normalizePaymentRows(trx);
+    const paySummaryHtml = payRows.length
+        ? payRows.map((p) => `
+            <div class="history-detail-summary-row">
+                <span>${paymentRowLabel(p)}</span>
+                <span>${fmt(p.amount)}</span>
+            </div>
+        `).join('')
+        : `<div class="history-detail-summary-row"><span>Bayar (${paymentMethodLabel(trx.payment_method)})</span><span>${fmt(trx.paid)}</span></div>`;
+
     body.innerHTML = `
         <div class="space-y-3 ${isVoid ? 'opacity-60' : ''}">
             ${trx.customer_name ? `<div><span class="text-slate-500">Pelanggan:</span> <span class="font-medium">${trx.customer_name}</span></div>` : ''}
             ${trx.table_number ? `<div><span class="text-slate-500">Meja:</span> <span class="font-medium">${trx.table_number}</span></div>` : ''}
-            <div><span class="text-slate-500">Pembayaran:</span> <span class="font-medium">${paymentMethodLabel(trx.payment_method)}</span></div>
+            <div>
+                <span class="text-slate-500">Pembayaran:</span>
+                <span class="font-medium">${paymentMethodsSummary(trx)}</span>
+            </div>
             ${isVoid && trx.void_reason ? `<div class="text-red-700 bg-red-50 border border-red-100 rounded-lg p-2 text-xs"><span class="font-medium">Alasan void:</span> ${trx.void_reason}</div>` : ''}
             <table class="history-detail-items">
                 <thead>
@@ -107,7 +184,7 @@ export function renderTransactionDetail(trx, settings = {}) {
                 ${Number(trx.discount) > 0 ? `<div class="history-detail-summary-row"><span>Diskon</span><span>${fmt(trx.discount)}</span></div>` : ''}
                 ${Number(trx.tax) > 0 ? `<div class="history-detail-summary-row"><span>Pajak</span><span>${fmt(trx.tax)}</span></div>` : ''}
                 <div class="history-detail-summary-row is-total"><span>Total</span><span>${fmt(trx.total)}</span></div>
-                <div class="history-detail-summary-row"><span>Bayar</span><span>${fmt(trx.paid)}</span></div>
+                ${paySummaryHtml}
                 <div class="history-detail-summary-row"><span>Kembali</span><span>${fmt(trx.change)}</span></div>
             </div>
         </div>
