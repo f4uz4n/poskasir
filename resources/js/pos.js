@@ -269,11 +269,11 @@ export function initPos() {
         }
         if (type === 'none') return settings;
 
-        if (!printer.isConnected()) {
-            await printer.reconnectBluetoothPersistent({ tries: 2, gapMs: 300 });
-        }
+        // Jangan reconnect agresif di sini — printReceipt yang tangani singkat
         return settings;
     }
+
+    let checkoutBusy = false;
 
     function focusBarcodeInput() {
         if (settings.scanner_enabled === false || !els.barcode) return;
@@ -884,6 +884,7 @@ export function initPos() {
     }
 
     async function checkout() {
+        if (checkoutBusy) return;
         if (!cart.length) {
             toast('Keranjang masih kosong');
             return;
@@ -918,7 +919,7 @@ export function initPos() {
         const payments = buildPayments(t);
         const hasVoucher = payments.some((p) => p.method === 'voucher');
         const methods = [...new Set(payments.map((p) => p.method))];
-        const paymentMethod = methods.length > 1 ? 'mixed' : (methods[0] || method);
+        const paymentMethod = methods.length > 1 ? 'mixed' : (methods[0] || 'cash');
 
         const payload = {
             local_id: uid(),
@@ -942,26 +943,44 @@ export function initPos() {
             })),
         };
 
+        const checkoutBtn = document.getElementById('btn-checkout');
+        const prevBtnText = checkoutBtn?.textContent;
+        checkoutBusy = true;
+        if (checkoutBtn) {
+            checkoutBtn.disabled = true;
+            checkoutBtn.textContent = 'Menyimpan…';
+        }
+
         const online = navigator.onLine;
         let resultInvoice = payload.local_id;
+        let saved = false;
 
         try {
             if (online) {
-                const res = await fetch(window.POS_CONFIG.routes.transactionsStore, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
-                    },
-                    body: JSON.stringify(payload),
-                });
-                const json = await res.json();
+                const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                const timer = controller ? setTimeout(() => controller.abort(), 20000) : null;
+                let res;
+                try {
+                    res = await fetch(window.POS_CONFIG.routes.transactionsStore, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': window.POS_CONFIG.csrf,
+                        },
+                        body: JSON.stringify(payload),
+                        signal: controller?.signal,
+                    });
+                } finally {
+                    if (timer) clearTimeout(timer);
+                }
+                const json = await res.json().catch(() => ({}));
                 if (!res.ok || !json.success) throw new Error(json.message || 'Gagal menyimpan');
                 resultInvoice = json.transaction.invoice_number;
                 payload.invoice_number = resultInvoice;
                 payload.synced = true;
                 if (json.transaction?.payments) payload.payments = json.transaction.payments;
+                saved = true;
             } else {
                 if (!OfflineStore.isQueueEnabled()) {
                     throw new Error('Offline. Aktifkan mode offline di Pengaturan terlebih dahulu.');
@@ -974,32 +993,49 @@ export function initPos() {
                 await OfflineStore.saveTransaction(payload);
                 resultInvoice = payload.invoice_number;
                 toast('Disimpan offline — akan disinkron saat online');
+                saved = true;
             }
         } catch (err) {
+            const msg = err?.name === 'AbortError'
+                ? 'Server lambat. Coba lagi atau aktifkan mode offline.'
+                : (err.message || 'Gagal checkout');
             if (hasVoucher) {
-                toast(err.message || 'Gagal checkout');
-                return;
-            }
-            if (OfflineStore.isQueueEnabled()) {
+                toast(msg);
+            } else if (OfflineStore.isQueueEnabled()) {
                 payload.invoice_number = 'OFF-' + Date.now();
                 payload.synced = false;
-                await OfflineStore.saveTransaction(payload);
-                resultInvoice = payload.invoice_number;
-                toast('Server gagal — transaksi disimpan offline');
+                try {
+                    await OfflineStore.saveTransaction(payload);
+                    resultInvoice = payload.invoice_number;
+                    toast('Server gagal — transaksi disimpan offline');
+                    saved = true;
+                } catch (_) {
+                    toast(msg);
+                }
             } else {
-                toast(err.message || 'Gagal checkout');
-                return;
+                toast(msg);
             }
+        }
+
+        if (!saved) {
+            checkoutBusy = false;
+            if (checkoutBtn) {
+                checkoutBtn.disabled = false;
+                checkoutBtn.textContent = prevBtnText || 'Bayar & Cetak';
+            }
+            return;
         }
 
         lastTransaction = payload;
 
+        // Cetak di background — jangan tahan input transaksi berikutnya
         void (async () => {
             try {
                 await refreshPrinterBeforePrint();
-                const printResult = await printer.printReceipt(payload, settings);
-                if (printResult?.drawerError) {
-                    toast(printResult.drawerError);
+                const printResult = await printer.printReceipt(payload, settings, { softFail: true });
+                if (printResult?.drawerError) toast(printResult.drawerError);
+                if (printResult && printResult.ok === false && printResult.error) {
+                    toast(printResult.error);
                 }
             } catch (printErr) {
                 toast(printErr.message || 'Transaksi tersimpan, tetapi cetak struk gagal.');
@@ -1018,6 +1054,12 @@ export function initPos() {
         els.modal.classList.remove('hidden');
         els.modal.classList.add('flex');
         focusBarcodeInput();
+
+        checkoutBusy = false;
+        if (checkoutBtn) {
+            checkoutBtn.disabled = false;
+            checkoutBtn.textContent = prevBtnText || 'Bayar & Cetak';
+        }
     }
 
     els.grid.addEventListener('click', (e) => {

@@ -226,13 +226,26 @@ export function shouldOpenDrawer(transaction = {}, settings = {}, options = {}) 
     return false;
 }
 
-function loadLogoImage(url) {
+function loadLogoImage(url, timeoutMs = 1500) {
     if (!url) return Promise.resolve(null);
     return new Promise((resolve) => {
+        let done = false;
+        const finish = (val) => {
+            if (done) return;
+            done = true;
+            resolve(val);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
+        img.onload = () => {
+            clearTimeout(timer);
+            finish(img);
+        };
+        img.onerror = () => {
+            clearTimeout(timer);
+            finish(null);
+        };
         img.src = url;
     });
 }
@@ -774,7 +787,7 @@ class PosPrinter {
             ? gatt
             : await Promise.race([
                 gatt.connect(),
-                sleep(12000).then(() => {
+                sleep(5000).then(() => {
                     throw new Error('Timeout koneksi Bluetooth. Pastikan printer menyala dan dekat.');
                 }),
             ]);
@@ -1784,53 +1797,62 @@ class PosPrinter {
         if (settings && Object.keys(settings).length) this.setSettings(settings);
 
         const type = this.settings.printer_type || 'bluetooth';
-        if (type === 'usb') {
-            const mode = effectiveUsbMode(this.settings);
-            if (mode === 'serial' || mode === 'webusb') {
-                if (mode === 'serial' && !this.writer) {
-                    await this.connectSerial();
-                } else if (mode === 'webusb' && !this.usbDevice) {
-                    await this.connectWebUsb();
+        const softFail = options.softFail === true;
+        try {
+            if (type === 'usb') {
+                const mode = effectiveUsbMode(this.settings);
+                if (mode === 'serial' || mode === 'webusb') {
+                    if (mode === 'serial' && !this.writer) {
+                        await this.connectSerial();
+                    } else if (mode === 'webusb' && !this.usbDevice) {
+                        await this.connectWebUsb();
+                    }
+                } else {
+                    this.applyUsbFromSettings() || await this.connectWindowsUsb({ refresh: false });
                 }
-            } else {
-                this.applyUsbFromSettings() || await this.connectWindowsUsb({ refresh: false });
+            } else if (!this.isConnected()) {
+                // Cetak cepat: reconnect singkat, jangan tahan transaksi lama
+                const ok = await this.reconnectBluetoothPersistent({ tries: 1, gapMs: 200 });
+                if (!ok) {
+                    throw new Error('Printer belum terkoneksi. Transaksi tetap tersimpan.');
+                }
             }
-        } else if (!this.isConnected()) {
-            await this.ensureConnected();
-        }
 
-        const openDrawer = shouldOpenDrawer(transaction, this.settings, options);
-        const driverUsb = this.isDriverUsbMode();
-        const logoImage = driverUsb ? null : await loadLogoImage(this.settings.logo_url);
-        const receiptText = buildReceiptText(transaction, this.settings, this.profile, options);
-        const bytes = driverUsb
-            ? new Uint8Array([0x1b, 0x40])
-            : buildReceipt(transaction, this.settings, this.profile, {
-                ...options,
-                openDrawer: false,
-                logoImage,
-            });
-        await this.writeBytes(bytes, receiptText);
+            const openDrawer = shouldOpenDrawer(transaction, this.settings, options);
+            const driverUsb = this.isDriverUsbMode();
+            const logoImage = driverUsb ? null : await loadLogoImage(this.settings.logo_url, 1200);
+            const receiptText = buildReceiptText(transaction, this.settings, this.profile, options);
+            const bytes = driverUsb
+                ? new Uint8Array([0x1b, 0x40])
+                : buildReceipt(transaction, this.settings, this.profile, {
+                    ...options,
+                    openDrawer: false,
+                    logoImage,
+                });
+            await this.writeBytes(bytes, receiptText);
 
-        let drawerError = null;
-        if (openDrawer) {
-            const runDrawer = async () => {
-                try {
-                    if (!driverUsb) await sleep(150);
-                    await this.openCashDrawer({ force: true });
-                } catch (err) {
-                    drawerError = err.message || 'Gagal membuka laci';
-                    console.warn('Cash drawer:', drawerError);
-                }
-            };
-            if (driverUsb) {
+            let drawerError = null;
+            if (openDrawer) {
+                const runDrawer = async () => {
+                    try {
+                        if (!driverUsb) await sleep(150);
+                        await this.openCashDrawer({ force: true });
+                    } catch (err) {
+                        drawerError = err.message || 'Gagal membuka laci';
+                        console.warn('Cash drawer:', drawerError);
+                    }
+                };
+                // Laci jangan menahan alur cetak/checkout
                 void runDrawer();
-            } else {
-                await runDrawer();
             }
-        }
 
-        return { ok: true, drawerError };
+            return { ok: true, drawerError };
+        } catch (err) {
+            if (softFail) {
+                return { ok: false, error: err.message || 'Cetak gagal' };
+            }
+            throw err;
+        }
     }
 
     async printTest(settings = {}) {

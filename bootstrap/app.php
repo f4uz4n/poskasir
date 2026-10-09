@@ -30,7 +30,17 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (\Illuminate\Session\TokenMismatchException $e, \Illuminate\Http\Request $request) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'message' => 'Sesi kedaluwarsa. Muat ulang halaman lalu coba lagi.',
+                ], 419);
+            }
+
+            return redirect()
+                ->guest(route('login'))
+                ->with('error', 'Sesi halaman kedaluwarsa (419). Muat ulang atau login ulang — biasanya karena tab lama / double-klik Masuk.');
+        });
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
         $schedule->command('subscription:verify-payments')->everyMinute();

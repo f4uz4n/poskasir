@@ -13,7 +13,7 @@ class PurchaseRecommendationExcelExport
 
     public function filename(): string
     {
-        return 'penjualan-product-'.$this->payload['date'].'.xls';
+        return 'penjualan-product-'.($this->payload['dateFrom'] ?? $this->payload['date']).'_'.($this->payload['dateTo'] ?? $this->payload['date']).'.xls';
     }
 
     public function contentType(): string
@@ -52,24 +52,26 @@ XML;
     private function sheetRingkasan(): string
     {
         $s = $this->payload['summary'];
-        $date = $this->formatDate($this->payload['date']);
+        $dateFrom = $this->formatDate($this->payload['dateFrom'] ?? $this->payload['date']);
+        $dateTo = $this->formatDate($this->payload['dateTo'] ?? $this->payload['date']);
+        $dateLabel = $dateFrom === $dateTo ? $dateFrom : $dateFrom.' – '.$dateTo;
 
         $rows = [
             [$this->cell('Penjualan Product', 'Title'), $this->cell('')],
             [$this->cell($this->storeName, 'Title'), $this->cell('')],
             [$this->cell(''), $this->cell('')],
             [$this->cell('Informasi', 'Section'), $this->cell('')],
-            [$this->cell('Tanggal penjualan', 'Label'), $this->cell($date)],
+            [$this->cell('Periode penjualan', 'Label'), $this->cell($dateLabel)],
             [$this->cell('Lookback rata-rata (hari)', 'Label'), $this->cellInt($this->payload['lookbackDays'])],
             [$this->cell('Target stok (hari)', 'Label'), $this->cellInt($this->payload['coverageDays'])],
             [$this->cell('Diekspor', 'Label'), $this->cell(now()->format('d/m/Y H:i'))],
             [$this->cell(''), $this->cell('')],
             [$this->cell('Ringkasan', 'Section'), $this->cell('')],
-            [$this->cell('SKU terjual hari ini', 'Label'), $this->cellInt($s['sku_sold_today'])],
+            [$this->cell('SKU terjual periode ini', 'Label'), $this->cellInt($s['sku_sold_today'])],
             [$this->cell('SKU perlu dibeli', 'Label'), $this->cellInt($s['sku_recommend'])],
             [$this->cell('Prioritas segera (merah)', 'Label'), $this->cellInt($s['urgent'])],
-            [$this->cell('Qty terjual hari ini', 'Label'), $this->cellInt($s['total_sold_qty'])],
-            [$this->cell('Omzet produk hari ini', 'Label'), $this->cellMoney($s['total_sold_sales'])],
+            [$this->cell('Qty terjual periode ini', 'Label'), $this->cellInt($s['total_sold_qty'])],
+            [$this->cell('Omzet produk periode ini', 'Label'), $this->cellMoney($s['total_sold_sales'])],
             [$this->cell('Total qty saran', 'Label'), $this->cellInt($s['total_recommend_qty'])],
             [$this->cell('Estimasi biaya', 'Label'), $this->cellMoney($s['total_est_cost'])],
         ];

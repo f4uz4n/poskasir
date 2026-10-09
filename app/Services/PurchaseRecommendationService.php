@@ -31,22 +31,42 @@ class PurchaseRecommendationService
      */
     public function build(int $ownerId, Request $request, bool $applySelectedFilter = false): array
     {
-        $date = $request->get('date', now()->toDateString());
+        $dateTo = $request->get('date_to') ?: $request->get('date', now()->toDateString());
+        $dateFrom = $request->get('date_from') ?: $dateTo;
+        try {
+            $from = Carbon::parse($dateFrom)->startOfDay();
+            $to = Carbon::parse($dateTo)->endOfDay();
+        } catch (\Throwable) {
+            $from = now()->startOfDay();
+            $to = now()->endOfDay();
+        }
+        if ($from->gt($to)) {
+            [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+        }
+        // Batasi rentang maksimal 92 hari agar laporan tetap ringan
+        if ($from->diffInDays($to) > 92) {
+            $from = $to->copy()->subDays(92)->startOfDay();
+        }
+
+        $dateFrom = $from->toDateString();
+        $dateTo = $to->toDateString();
+        $date = $dateTo; // kompatibilitas export/view lama
+
         $lookbackDays = max(1, min(90, (int) $request->get('lookback_days', 14)));
         $coverageDays = max(1, min(90, (int) $request->get('coverage_days', 14)));
         $priority = $request->get('priority') ?: null;
         $q = trim((string) $request->get('q', '')) ?: null;
 
-        $lookbackFrom = Carbon::parse($date)->subDays($lookbackDays - 1)->toDateString();
-        $lookbackTo = $date;
+        $lookbackFrom = Carbon::parse($dateTo)->subDays($lookbackDays - 1)->toDateString();
+        $lookbackTo = $dateTo;
 
-        // Penjualan hari terpilih
+        // Penjualan pada rentang tanggal terpilih
         $daySalesQuery = TransactionItem::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
             ->where('transactions.user_id', $ownerId)
             ->where('transactions.status', 'completed')
             ->whereNotNull('transaction_items.product_id');
-        $this->period->applySoldAtRange($daySalesQuery, $date, $date, 'transactions.sold_at');
+        $this->period->applySoldAtRange($daySalesQuery, $dateFrom, $dateTo, 'transactions.sold_at');
 
         $daySalesMap = (clone $daySalesQuery)
             ->select(
@@ -59,7 +79,7 @@ class PurchaseRecommendationService
             ->get()
             ->keyBy('product_id');
 
-        // Rata-rata dari lookback (untuk saran beli)
+        // Rata-rata dari lookback (untuk saran beli) — relatif ke tanggal akhir
         $lookbackQuery = TransactionItem::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
             ->where('transactions.user_id', $ownerId)
@@ -212,6 +232,8 @@ class PurchaseRecommendationService
 
         return compact(
             'date',
+            'dateFrom',
+            'dateTo',
             'lookbackDays',
             'coverageDays',
             'lookbackFrom',

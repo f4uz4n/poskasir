@@ -64,6 +64,6 @@ class PurchaseRecommendationController extends Controller
             'storeName' => $storeName,
         ])->setPaper('a4', 'landscape');
 
-        return $pdf->download('penjualan-product-'.$payload['date'].'.pdf');
+        return $pdf->download('penjualan-product-'.($payload['dateFrom'] ?? $payload['date']).'_'.($payload['dateTo'] ?? $payload['date']).'.pdf');
     }
 }

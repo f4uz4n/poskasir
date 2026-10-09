@@ -18,14 +18,19 @@
 <body>
     <h1>{{ $storeName }}</h1>
     <div class="muted">
-        Penjualan Product · {{ \Carbon\Carbon::parse($date)->format('d/m/Y') }}
+        Penjualan Product ·
+        @if(($dateFrom ?? $date) === ($dateTo ?? $date))
+            {{ \Carbon\Carbon::parse($dateTo ?? $date)->format('d/m/Y') }}
+        @else
+            {{ \Carbon\Carbon::parse($dateFrom ?? $date)->format('d/m/Y') }} – {{ \Carbon\Carbon::parse($dateTo ?? $date)->format('d/m/Y') }}
+        @endif
         · Lookback {{ $lookbackDays }} hari · Target stok {{ $coverageDays }} hari
         · Diekspor {{ now()->format('d/m/Y H:i') }}
     </div>
 
     <table class="summary">
-        <tr><td>SKU terjual hari ini</td><td>{{ number_format($summary['sku_sold_today'], 0, ',', '.') }}</td></tr>
-        <tr><td>Qty / omzet hari ini</td><td>{{ number_format($summary['total_sold_qty'], 0, ',', '.') }} / Rp {{ number_format($summary['total_sold_sales'], 0, ',', '.') }}</td></tr>
+        <tr><td>SKU terjual periode ini</td><td>{{ number_format($summary['sku_sold_today'], 0, ',', '.') }}</td></tr>
+        <tr><td>Qty / omzet periode</td><td>{{ number_format($summary['total_sold_qty'], 0, ',', '.') }} / Rp {{ number_format($summary['total_sold_sales'], 0, ',', '.') }}</td></tr>
         <tr><td>Prioritas segera (merah)</td><td>{{ $summary['urgent'] }}</td></tr>
         <tr><td>SKU perlu dibeli</td><td>{{ number_format($summary['sku_recommend'], 0, ',', '.') }}</td></tr>
         <tr><td>Total qty saran</td><td>{{ number_format($summary['total_recommend_qty'], 0, ',', '.') }}</td></tr>

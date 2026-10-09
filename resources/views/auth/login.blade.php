@@ -24,23 +24,44 @@
             <h1 class="text-2xl font-bold mb-1">Masuk</h1>
             <p class="text-slate-500 mb-6">Gunakan akun toko untuk mengakses kasir.</p>
 
-            <form method="POST" action="{{ route('login') }}" class="space-y-4 card p-6">
+            @if(session('error'))
+                <div class="mb-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 text-sm">{{ session('error') }}</div>
+            @endif
+
+            <form method="POST" action="{{ route('login') }}" class="space-y-4 card p-6" id="login-form">
                 @csrf
                 <div>
                     <label class="block text-sm font-medium mb-1">Email</label>
-                    <input type="email" name="email" value="{{ old('email') }}" class="input" required autofocus>
+                    <input type="email" name="email" value="{{ old('email') }}" class="input" required autofocus autocomplete="username">
                     @error('email') <p class="text-red-600 text-sm mt-1">{{ $message }}</p> @enderror
                 </div>
                 <div>
                     <label class="block text-sm font-medium mb-1">Password</label>
-                    <input type="password" name="password" class="input" required>
+                    <input type="password" name="password" class="input" required autocomplete="current-password">
                 </div>
                 <p class="text-xs text-slate-500 leading-relaxed">
                     Perangkat ini akan tetap masuk otomatis. Batas jumlah perangkat login bisa diatur di menu Pengaturan.
                 </p>
                 <x-recaptcha />
-                <button class="btn btn-primary w-full">Masuk</button>
+                <button type="submit" class="btn btn-primary w-full" id="login-submit">Masuk</button>
             </form>
+            <script>
+                (function () {
+                    const form = document.getElementById('login-form');
+                    const btn = document.getElementById('login-submit');
+                    if (!form || !btn) return;
+                    let submitting = false;
+                    form.addEventListener('submit', function (e) {
+                        if (submitting) {
+                            e.preventDefault();
+                            return;
+                        }
+                        submitting = true;
+                        btn.disabled = true;
+                        btn.textContent = 'Memproses…';
+                    });
+                })();
+            </script>
 
             <p class="text-center text-sm text-slate-500 mt-6">
                 Belum punya akun?

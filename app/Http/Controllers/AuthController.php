@@ -17,7 +17,7 @@ class AuthController extends Controller
 {
     public function showLogin(RecaptchaService $recaptcha)
     {
-        return view('auth.login', [
+        return $this->noStoreAuthView('auth.login', [
             'recaptchaEnabled' => $recaptcha->shouldChallenge(request()),
         ]);
     }
@@ -73,9 +73,19 @@ class AuthController extends Controller
 
     public function showRegister(RecaptchaService $recaptcha)
     {
-        return view('auth.register', [
+        return $this->noStoreAuthView('auth.register', [
             'recaptchaEnabled' => $recaptcha->shouldChallenge(request()),
         ]);
+    }
+
+    /** Cegah cache HTML login/register (CSRF token basi → 419). */
+    protected function noStoreAuthView(string $view, array $data = [])
+    {
+        return response()
+            ->view($view, $data)
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+            ->header('Pragma', 'no-cache')
+            ->header('Expires', '0');
     }
 
     public function register(Request $request, RecaptchaService $recaptcha)

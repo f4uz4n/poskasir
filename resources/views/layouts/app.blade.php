@@ -130,7 +130,7 @@
                 @include('partials.sidebar-nav')
             </nav>
 
-            <div class="p-3 border-t border-slate-100 space-y-2 shrink-0">
+            <div class="p-3 border-t border-slate-100 space-y-2 shrink-0 sidebar-footer" style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));">
                 <div class="sidebar-status flex items-center justify-between text-sm px-2">
                     <span class="nav-label text-slate-500">Status</span>
                     <span id="net-status" class="inline-flex items-center gap-2 font-medium">
@@ -144,7 +144,7 @@
                 </a>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
-                    <button class="btn btn-ghost w-full text-sm" title="Keluar">
+                    <button class="btn btn-ghost w-full text-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50" title="Keluar">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                         <span class="nav-label">Keluar</span>
                     </button>
@@ -170,6 +170,12 @@
                             <div class="text-sm font-semibold truncate max-w-[10rem]">{{ auth()->user()->name }}</div>
                             <div class="text-xs text-slate-500 truncate max-w-[10rem]">{{ auth()->user()->email }}</div>
                         </div>
+                        <form method="POST" action="{{ route('logout') }}" class="lg:hidden m-0">
+                            @csrf
+                            <button type="submit" class="btn btn-ghost px-2.5 text-rose-600" title="Keluar" aria-label="Keluar">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                            </button>
+                        </form>
                     </div>
                 </div>
             </header>

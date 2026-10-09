@@ -1,13 +1,16 @@
-const CACHE_NAME = 'poskasir-v7';
+const CACHE_NAME = 'poskasir-v8';
 const BASE = new URL('./', self.location).pathname.replace(/\/?$/, '/');
 
 const PRECACHE = [
   BASE,
-  BASE + 'login',
   BASE + 'manifest.json',
   BASE + 'icons/icon-192.png',
   BASE + 'icons/icon-512.png',
 ];
+
+function isAuthPath(pathname) {
+  return /\/(login|register|logout)(\/|$)/i.test(pathname);
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -38,7 +41,6 @@ async function matchCachedNavigate(request) {
 
   return caches.match(BASE + 'pos')
     || caches.match(BASE + 'dashboard')
-    || caches.match(BASE + 'login')
     || caches.match(BASE);
 }
 
@@ -47,6 +49,19 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  // Halaman auth: jangan cache (CSRF token harus selalu fresh → hindari 419)
+  if (isAuthPath(url.pathname)) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' }).catch(() =>
+        new Response('Sesi login memerlukan koneksi. Muat ulang saat online.', {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        })
+      )
+    );
+    return;
+  }
 
   // Jangan cache API / transaksi / printer
   if (
@@ -79,7 +94,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response && response.status === 200) {
+          if (response && response.status === 200 && !isAuthPath(url.pathname)) {
             const copy = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           }

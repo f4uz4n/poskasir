@@ -2,15 +2,27 @@
 
 @section('title', 'Penjualan Product')
 @section('heading', 'Penjualan Product')
-@section('subheading', 'Penjualan produk per hari + checklist belanja (produk merah tercentang otomatis)')
+@section('subheading', 'Penjualan produk per periode + checklist belanja (produk merah tercentang otomatis)')
 
 @section('content')
 @include('reports._tabs', ['activeTab' => 'product-sales'])
 
-<form method="GET" class="card p-4 mb-4 grid sm:grid-cols-2 xl:grid-cols-6 gap-3" id="product-sales-filter">
+@php
+    $dateFrom = $dateFrom ?? $date;
+    $dateTo = $dateTo ?? $date;
+    $rangeLabel = $dateFrom === $dateTo
+        ? \Carbon\Carbon::parse($dateFrom)->format('d M Y')
+        : \Carbon\Carbon::parse($dateFrom)->format('d M Y').' – '.\Carbon\Carbon::parse($dateTo)->format('d M Y');
+@endphp
+
+<form method="GET" class="card p-4 mb-4 grid sm:grid-cols-2 xl:grid-cols-7 gap-3" id="product-sales-filter">
     <div>
-        <label class="text-xs text-slate-500">Tanggal penjualan</label>
-        <input type="date" name="date" value="{{ $date }}" class="input mt-1">
+        <label class="text-xs text-slate-500">Dari tanggal</label>
+        <input type="date" name="date_from" value="{{ $dateFrom }}" class="input mt-1">
+    </div>
+    <div>
+        <label class="text-xs text-slate-500">Sampai tanggal</label>
+        <input type="date" name="date_to" value="{{ $dateTo }}" class="input mt-1">
     </div>
     <div>
         <label class="text-xs text-slate-500">Lookback rata-rata (hari)</label>
@@ -47,14 +59,14 @@
 </form>
 
 <p class="text-xs text-slate-500 mb-4">
-    Menampilkan penjualan tanggal <strong>{{ \Carbon\Carbon::parse($date)->format('d/m/Y') }}</strong>.
-    Saran beli dihitung dari rata-rata {{ $lookbackDays }} hari ({{ \Carbon\Carbon::parse($lookbackFrom)->format('d/m/Y') }} – {{ \Carbon\Carbon::parse($date)->format('d/m/Y') }}) × target {{ $coverageDays }} hari − stok.
+    Menampilkan penjualan periode <strong>{{ $rangeLabel }}</strong>.
+    Saran beli dihitung dari rata-rata {{ $lookbackDays }} hari ({{ \Carbon\Carbon::parse($lookbackFrom)->format('d/m/Y') }} – {{ \Carbon\Carbon::parse($dateTo)->format('d/m/Y') }}) × target {{ $coverageDays }} hari − stok.
     Checklist default: produk prioritas <span class="text-red-600 font-semibold">merah / segera</span>. Centang tersimpan saat pindah halaman.
 </p>
 
 <div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
     <div class="card p-5">
-        <div class="text-sm text-slate-500">SKU terjual hari ini</div>
+        <div class="text-sm text-slate-500">SKU terjual periode ini</div>
         <div class="text-2xl font-extrabold mt-1">{{ number_format($summary['sku_sold_today'], 0, ',', '.') }}</div>
         <div class="text-xs text-slate-400 mt-1">Qty {{ number_format($summary['total_sold_qty'], 0, ',', '.') }} · Rp {{ number_format($summary['total_sold_sales'], 0, ',', '.') }}</div>
     </div>
@@ -77,12 +89,12 @@
 
 <div class="card p-5 overflow-x-auto"
      id="product-sales-panel"
-     data-storage-key="product-sales-checked:{{ $date }}:{{ md5(($q ?? '').'|'.($priority ?? '').'|'.$lookbackDays.'|'.$coverageDays) }}"
+     data-storage-key="product-sales-checked:{{ $dateFrom }}:{{ $dateTo }}:{{ md5(($q ?? '').'|'.($priority ?? '').'|'.$lookbackDays.'|'.$coverageDays) }}"
      data-default-checked='@json($defaultCheckedIds)'
      data-items-meta='@json($itemsMeta)'>
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div class="min-w-0">
-            <h2 class="font-bold">Daftar penjualan product — {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</h2>
+            <h2 class="font-bold">Daftar penjualan product — {{ $rangeLabel }}</h2>
             <p class="text-xs text-slate-500 mt-1">Centang produk yang akan dibelanjakan. Produk merah tercentang otomatis.</p>
         </div>
         <form method="GET" class="flex flex-wrap items-end gap-2" id="product-search-form">
@@ -192,7 +204,7 @@
                         @if($q)
                             Tidak ada produk cocok untuk pencarian “{{ $q }}”.
                         @else
-                            Tidak ada penjualan product pada tanggal ini. Pilih tanggal lain atau pastikan produk sudah terjual.
+                            Tidak ada penjualan product pada periode ini. Ubah rentang tanggal atau pastikan produk sudah terjual.
                         @endif
                     </td>
                 </tr>
